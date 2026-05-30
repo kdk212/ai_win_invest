@@ -85,6 +85,62 @@ def _cmd_optimize_take_profit(args: argparse.Namespace) -> None:
         )
 
 
+def _format_strategy_review(start: str, end: str | None, top_n: int) -> str:
+    score = optimize_score_threshold(start, end, top_n).head(5)
+    stop = optimize_stop_loss(start, end, top_n).head(5)
+    take_profit = optimize_take_profit(start, end, top_n).head(5)
+
+    lines = [
+        "[AI Invest] Weekly strategy review",
+        "",
+        f"Period: {start} ~ {end or 'latest'}",
+        f"Max positions: {top_n}",
+        "",
+        "====================",
+        "",
+        "Raw score threshold candidates",
+    ]
+    for _, row in score.iterrows():
+        lines.append(
+            f"- raw >= {row['score_threshold']:.2f} | avg {row['avg_positions']:.2f} positions | "
+            f"CAGR {pct(row['cagr'])} | MDD {pct(row['mdd'])} | Sharpe {row['sharpe']:.2f}"
+        )
+
+    lines.extend(["", "Stop multiplier candidates"])
+    for _, row in stop.iterrows():
+        lines.append(
+            f"- multiplier {row['stop_multiplier']:.1f} | CAGR {pct(row['cagr'])} | "
+            f"MDD {pct(row['mdd'])} | Sharpe {row['sharpe']:.2f}"
+        )
+
+    lines.extend(["", "Take-profit / trailing candidates"])
+    for _, row in take_profit.iterrows():
+        lines.append(
+            f"- trigger {pct(row['take_profit_trigger_pct'])}, trail {pct(row['take_profit_trailing_pct'])} | "
+            f"CAGR {pct(row['cagr'])} | MDD {pct(row['mdd'])} | Sharpe {row['sharpe']:.2f}"
+        )
+
+    lines.extend(
+        [
+            "",
+            "====================",
+            "",
+            "Review only. Strategy settings are not changed automatically.",
+            "Apply changes only after confirming stability across multiple periods.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _cmd_review_strategy(args: argparse.Namespace) -> None:
+    ensure_dirs()
+    message = _format_strategy_review(args.start, args.end, args.top_n)
+    print(message)
+    if args.send_telegram:
+        sent = send_telegram(message)
+        print("Telegram sent" if sent else "Telegram skipped: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing.")
+
+
 def _cmd_track(_: argparse.Namespace) -> None:
     ensure_dirs()
     df = update_recommendation_returns()
@@ -132,6 +188,13 @@ def main() -> None:
     optimize_tp.add_argument("--end", default=None)
     optimize_tp.add_argument("--top-n", type=int, default=7)
     optimize_tp.set_defaults(func=_cmd_optimize_take_profit)
+
+    review = sub.add_parser("review-strategy", help="Send a weekly strategy optimization review")
+    review.add_argument("--start", default="2024-11-01")
+    review.add_argument("--end", default=None)
+    review.add_argument("--top-n", type=int, default=7)
+    review.add_argument("--send-telegram", action="store_true")
+    review.set_defaults(func=_cmd_review_strategy)
 
     track = sub.add_parser("track", help="Update returns after recommendation")
     track.set_defaults(func=_cmd_track)
