@@ -5,6 +5,11 @@ on:
     # 21:00 Korea Standard Time = 12:00 UTC
     - cron: "0 12 * * *"
   workflow_dispatch:
+    inputs:
+      as_of_date:
+        description: "Recommendation date in YYYY-MM-DD. Leave blank for latest available date."
+        required: false
+        type: string
 
 jobs:
   send-recommendations:
@@ -30,5 +35,10 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
-      - name: Send Telegram recommendations
+      - name: Send latest Telegram recommendations
+        if: ${{ github.event.inputs.as_of_date == '' }}
         run: python main.py daily --with-news --send-telegram
+
+      - name: Send selected-date Telegram recommendations
+        if: ${{ github.event.inputs.as_of_date != '' }}
+        run: python main.py daily --as-of-date "${{ github.event.inputs.as_of_date }}" --with-news --send-telegram
