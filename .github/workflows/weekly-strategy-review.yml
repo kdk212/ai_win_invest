@@ -1,0 +1,57 @@
+name: Weekly Strategy Review
+
+on:
+  schedule:
+    # Sunday 21:00 Korea Standard Time = Sunday 12:00 UTC
+    - cron: "0 12 * * 0"
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "Backtest start date in YYYY-MM-DD"
+        required: false
+        default: "2024-11-01"
+        type: string
+      end:
+        description: "Backtest end date in YYYY-MM-DD. Leave blank for latest."
+        required: false
+        type: string
+      top_n:
+        description: "Maximum portfolio size"
+        required: false
+        default: "7"
+        type: string
+
+jobs:
+  review-strategy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      PYTHONUNBUFFERED: "1"
+      START_DATE: ${{ github.event.inputs.start || '2024-11-01' }}
+      END_DATE: ${{ github.event.inputs.end || '' }}
+      TOP_N: ${{ github.event.inputs.top_n || '7' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Send weekly strategy review
+        shell: bash
+        run: |
+          if [ -n "$END_DATE" ]; then
+            python main.py review-strategy --start "$START_DATE" --end "$END_DATE" --top-n "$TOP_N" --send-telegram
+          else
+            python main.py review-strategy --start "$START_DATE" --top-n "$TOP_N" --send-telegram
+          fi
