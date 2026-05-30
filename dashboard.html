@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>AI Invest Korea Dashboard</title>
+  <style>
+    body { margin:0; font-family: Arial, "Malgun Gothic", sans-serif; color:#17202a; background:#eef2f6; }
+    header { padding:20px 28px 16px; background:#15202b; color:#fff; border-bottom:4px solid #2f80ed; }
+    h1 { margin:0; font-size:26px; } h2 { font-size:17px; margin:0 0 10px; color:#1f2d3d; }
+    main { padding:18px 28px 36px; } section { margin-bottom:18px; background:#fff; border:1px solid #d7dee8; padding:16px; }
+    .summary,.sub { color:#cbd5e1; margin-top:8px; font-size:13px; } .metrics { display:table; width:100%; table-layout:fixed; border-spacing:8px 0; margin-top:10px; }
+    .metric { display:table-cell; padding:10px 12px; background:#f6f9fc; border-top:3px solid #2f80ed; } .metric span { display:block; color:#637083; font-size:12px; } .metric b { font-size:20px; }
+    .scroll { overflow-x:auto; } table { width:100%; border-collapse:collapse; font-size:12px; background:#fff; } th,td { border-bottom:1px solid #d9e1ea; padding:6px; text-align:left; white-space:nowrap; } th { background:#f3f6fa; }
+    .muted { color:#637083; font-size:12px; } .note { color:#516173; font-size:13px; line-height:1.6; } .news { white-space:normal; min-width:280px; max-width:380px; line-height:1.45; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AI Invest Korea</h1>
+    <div class="sub">최신 추천 기준일: 2026-05-29</div>
+    <div class="summary">시장 환경: global risk-on; leading proxies: AI/semiconductor, technology, Korea</div>
+  </header>
+  <main>
+    <section>
+      <h2>백테스트 결과</h2>
+      <div class="note">기간: 2024-11-01 ~ 2026-05-29 | raw 2.0점 이상, 최대 7개 | 손절 배수 2.5 | 익절 +30% 후 -10% 트레일링</div>
+      <div class="metrics">
+        <div class="metric"><span>총수익률</span><b>2,009.07%</b></div>
+        <div class="metric"><span>CAGR</span><b>651.24%</b></div>
+        <div class="metric"><span>MDD</span><b>-24.43%</b></div>
+        <div class="metric"><span>Sharpe</span><b>3.35</b></div>
+        <div class="metric"><span>평균 투자비중</span><b>79.19%</b></div>
+      </div>
+    </section>
+    <section>
+      <h2>최근 추천 종목</h2>
+      <div class="scroll"><table>
+        <thead><tr><th>순위</th><th>추천일</th><th>종목</th><th>코드</th><th>테마/공급망</th><th>추천일 종가</th><th>점수</th><th>1개월</th><th>3개월</th><th>경고가</th><th>최종손절가</th><th>익절트리거</th><th>트레일링익절가</th><th>7일 리스크 판단</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>2026-05-29</td><td>삼성전기</td><td>009150</td><td>AI/semiconductor supply chain</td><td>2,127,000</td><td><b>100.0/100</b><br><span class="muted">raw 5.54</span></td><td>153.52%</td><td>420.05%</td><td>1,914,300</td><td>1,744,140</td><td>2,765,100</td><td>2,488,590</td><td class="news">리스크: 단기 과열 및 변동성 확대 가능성.<br>판정: 분할 진입<br>이유: 기대 선반영과 과열 부담이 있어 비중을 조절.</td></tr>
+          <tr><td>2</td><td>2026-05-29</td><td>LG이노텍</td><td>011070</td><td>Electronics component supply chain</td><td>1,458,000</td><td><b>99.6/100</b><br><span class="muted">raw 5.21</span></td><td>152.69%</td><td>411.58%</td><td>1,312,200</td><td>1,195,560</td><td>1,895,400</td><td>1,705,860</td><td class="news">리스크: 급등과 밸류에이션 확장 위험.<br>판정: 관망<br>이유: 추가 상승 모멘텀 확인 전까지 신규 진입 보류.</td></tr>
+          <tr><td>3</td><td>2026-05-29</td><td>SK하이닉스</td><td>000660</td><td>AI/semiconductor supply chain</td><td>2,333,000</td><td><b>98.8/100</b><br><span class="muted">raw 3.34</span></td><td>79.46%</td><td>148.46%</td><td>2,099,700</td><td>1,913,060</td><td>3,032,900</td><td>2,729,610</td><td class="news">리스크: 고가권 변동성 확대와 차익실현 가능성.<br>판정: 관망<br>이유: 신규 진입은 가격 조정 후 검토.</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+    <section><h2>해석 기준</h2><p class="note">점수는 전체 후보군 안에서 상대 순위를 100점 만점으로 환산한 값입니다. raw 점수는 모델 내부 z-score 합산값입니다. 리스크 판정은 진입 가능, 분할 진입, 관망, 제외로 표시합니다.</p></section>
+  </main>
+</body>
+</html>
