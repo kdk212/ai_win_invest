@@ -1,0 +1,45 @@
+portfolio:
+  top_n: 7
+  min_raw_score: 2.0
+  max_positions: 7
+  universe_size: 250
+  min_trading_value_krw: 3000000000
+  max_positions_for_message: 10
+
+strategy:
+  momentum_20d_weight: 0.20
+  momentum_60d_weight: 0.30
+  momentum_120d_weight: 0.20
+  trend_weight: 0.15
+  liquidity_weight: 0.10
+  volatility_weight: -0.15
+  valuation_weight: 0.10
+
+backtest:
+  rebalance_days: 5
+  transaction_cost_bps: 20
+  stop_multiplier: 2.5
+  score_threshold: 2.0
+  take_profit_trigger_pct: 0.30
+  take_profit_trailing_pct: 0.10
+  benchmark: "1001"
+
+macro:
+  lookback_days: 120
+  proxies:
+    ai_semiconductor: "SMH"
+    nasdaq: "QQQ"
+    sp500: "SPY"
+    korea: "EWY"
+    dollar: "DX-Y.NYB"
+    usdkrw: "KRW=X"
+    technology: "XLK"
+    industrials: "XLI"
+    financials: "XLF"
+    healthcare: "XLV"
+    consumer_discretionary: "XLY"
+    consumer_staples: "XLP"
+    energy: "XLE"
+    materials: "XLB"
+    utilities: "XLU"
+    defense_aerospace: "ITA"
