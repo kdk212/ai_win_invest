@@ -1,0 +1,16 @@
+openai.env
+telegram.env
+.env
+*.env
+
+data/
+logs/
+*.log
+
+.venv/
+.venv32/
+__pycache__/
+*.pyc
+
+.pytest_cache/
+.mypy_cache/
