@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import date
 
 from .backtest import optimize_score_threshold, optimize_stop_loss, optimize_take_profit, run_backtest, summarize_backtest
 from .config import DATA_DIR, ensure_dirs
@@ -14,7 +15,8 @@ from .web import serve
 
 def _cmd_daily(args: argparse.Namespace) -> None:
     ensure_dirs()
-    recs = build_recommendations(top_n=args.top_n)
+    as_of = date.fromisoformat(args.as_of_date) if args.as_of_date else None
+    recs = build_recommendations(as_of=as_of, top_n=args.top_n)
     if recs.empty:
         print("No recommendation candidates were generated. Check data access or the as-of date.")
         return
@@ -100,6 +102,7 @@ def main() -> None:
 
     daily = sub.add_parser("daily", help="Generate today's recommendation candidates")
     daily.add_argument("--top-n", type=int, default=None)
+    daily.add_argument("--as-of-date", default=None, help="Recommendation date in YYYY-MM-DD format")
     daily.add_argument("--send-telegram", action="store_true")
     daily.add_argument("--with-news", action="store_true")
     daily.set_defaults(func=_cmd_daily)
