@@ -16,6 +16,7 @@
 
 ```powershell
 python main.py daily
+python main.py daily --as-of-date 2026-05-29 --with-news --send-telegram
 python main.py daily --with-news --send-telegram
 python main.py backtest --start 2024-11-01 --top-n 7
 python main.py optimize-score --start 2024-11-01 --top-n 7
@@ -40,7 +41,26 @@ GitHub 저장소에서 아래 비밀값을 등록해야 합니다.
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
 
-수동 테스트는 GitHub 저장소의 `Actions` 탭에서 `Daily Telegram Recommendations` 워크플로를 선택한 뒤 `Run workflow`를 누르면 됩니다.
+## 특정일 추천주 수동 전송
+
+GitHub 저장소의 `Actions` 탭에서 `Daily Telegram Recommendations` 워크플로를 선택한 뒤 `Run workflow`를 누르면 됩니다.
+
+- `as_of_date`를 비워두면 최신 가능 일자 기준으로 전송합니다.
+- `as_of_date`에 `2026-05-29`처럼 입력하면 해당 기준일 추천주를 텔레그램으로 전송합니다.
+
+## 추천로직 고도화 원칙
+
+추천로직은 자동으로 코드를 바꾸기보다, 성과를 쌓고 검증한 뒤 승인해서 반영하는 구조가 안전합니다.
+
+권장 흐름:
+
+1. 매일 추천주와 이후 수익률을 기록합니다.
+2. 매주 또는 매월 백테스트 기간을 최신일까지 확장합니다.
+3. raw 점수 기준, 손절 배수, 익절 트리거, 트레일링 폭을 자동 최적화합니다.
+4. 기존 로직 대비 CAGR, MDD, Sharpe, 평균 투자비중, 거래 빈도, 최근 구간 성과를 비교합니다.
+5. 새 파라미터가 여러 기간에서 안정적으로 우수할 때만 사람이 승인해 설정에 반영합니다.
+
+자동 코드 수정까지 허용하면 과최적화와 예기치 않은 매매 기준 변경 위험이 커집니다. 따라서 자동화는 “검증 리포트 생성”까지, 실제 전략 변경은 승인 후 반영하는 방식을 기본으로 합니다.
 
 ## 로컬 텔레그램 설정
 
