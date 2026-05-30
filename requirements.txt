@@ -1,0 +1,8 @@
+pandas>=2.2
+numpy>=1.26
+requests>=2.32
+pykrx>=1.2
+yfinance>=1.2
+PyYAML>=6.0
+finance-datareader>=0.9
+openai>=1.0
