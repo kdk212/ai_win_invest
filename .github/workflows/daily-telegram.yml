@@ -20,6 +20,7 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       PYTHONUNBUFFERED: "1"
+      AS_OF_DATE: ${{ github.event.inputs.as_of_date || '' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -35,10 +36,11 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
-      - name: Send latest Telegram recommendations
-        if: ${{ github.event.inputs.as_of_date == '' }}
-        run: python main.py daily --with-news --send-telegram
-
-      - name: Send selected-date Telegram recommendations
-        if: ${{ github.event.inputs.as_of_date != '' }}
-        run: python main.py daily --as-of-date "${{ github.event.inputs.as_of_date }}" --with-news --send-telegram
+      - name: Send Telegram recommendations
+        shell: bash
+        run: |
+          if [ -n "$AS_OF_DATE" ]; then
+            python main.py daily --as-of-date "$AS_OF_DATE" --with-news --send-telegram
+          else
+            python main.py daily --with-news --send-telegram
+          fi
