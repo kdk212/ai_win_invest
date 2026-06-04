@@ -57,12 +57,26 @@ def _validation_summary(result: pd.DataFrame, days: int = 42) -> dict[str, float
 
 def _selection_objective(summary: dict[str, float], validation: dict[str, float]) -> float:
     train_score = _objective(summary)
+    validation_total_return = float(validation.get("validation_total_return", 0.0))
     validation_cagr = float(validation.get("validation_cagr", 0.0))
     validation_mdd = float(validation.get("validation_mdd", 0.0))
     validation_sharpe = float(validation.get("validation_sharpe", 0.0))
     validation_score = validation_cagr * max(0.10, 1.0 + validation_mdd) + 0.10 * validation_sharpe
     stability_penalty = max(0.0, float(summary.get("cagr", 0.0)) - max(validation_cagr, 0.0)) * 0.15
-    return 0.70 * train_score + 0.30 * validation_score - stability_penalty
+    validation_loss_penalty = max(0.0, -validation_total_return) * 4.0
+    validation_drawdown_penalty = max(0.0, abs(validation_mdd) - 0.08) * 2.0
+    return 0.70 * train_score + 0.30 * validation_score - stability_penalty - validation_loss_penalty - validation_drawdown_penalty
+
+
+def _validation_grade(validation: dict[str, float]) -> str:
+    validation_total_return = float(validation.get("validation_total_return", 0.0))
+    validation_mdd = float(validation.get("validation_mdd", 0.0))
+    validation_sharpe = float(validation.get("validation_sharpe", 0.0))
+    if validation_total_return >= 0 and validation_mdd > -0.08 and validation_sharpe >= 0:
+        return "pass"
+    if validation_total_return < 0 or validation_mdd <= -0.12:
+        return "weak"
+    return "watch"
 
 
 def _pick_best(report: pd.DataFrame, end: str, phase: str) -> dict[str, Any]:
@@ -78,7 +92,7 @@ def _pick_best(report: pd.DataFrame, end: str, phase: str) -> dict[str, Any]:
     return {
         "selected_at": pd.Timestamp.now(tz="Asia/Seoul").isoformat(),
         "selection_phase": phase,
-        "selection_rule": "max blended objective = 70% full-period score + 30% recent validation score",
+        "selection_rule": "max blended objective = 70% full-period score + 30% recent validation score with loss/drawdown penalties",
         "window_months": int(best_row["window_months"]),
         "start": str(best_row["start"]),
         "end": end,
@@ -97,6 +111,7 @@ def _pick_best(report: pd.DataFrame, end: str, phase: str) -> dict[str, Any]:
         "validation_cagr": float(best_row.get("validation_cagr", 0.0)),
         "validation_mdd": float(best_row.get("validation_mdd", 0.0)),
         "validation_sharpe": float(best_row.get("validation_sharpe", 0.0)),
+        "validation_grade": str(best_row.get("validation_grade", "-")),
     }
 
 
@@ -164,11 +179,12 @@ def optimize_strategy_windows(
                             continue
                         objective = _objective(summary)
                         selection_objective = _selection_objective(summary, validation)
+                        validation_grade = _validation_grade(validation)
                         if verbose:
                             print(
                                 f"  -> CAGR {summary['cagr']:.2%}, MDD {summary['mdd']:.2%}, "
                                 f"Sharpe {summary['sharpe']:.2f}, "
-                                f"validation {validation['validation_total_return']:.2%}",
+                                f"validation {validation['validation_total_return']:.2%} ({validation_grade})",
                                 flush=True,
                             )
                         rows.append(
@@ -185,6 +201,7 @@ def optimize_strategy_windows(
                                 "rebalance_count": int(holdings["date"].nunique()) if not holdings.empty else 0,
                                 "objective": objective,
                                 "selection_objective": selection_objective,
+                                "validation_grade": validation_grade,
                                 "error": "",
                                 **summary,
                                 **validation,
