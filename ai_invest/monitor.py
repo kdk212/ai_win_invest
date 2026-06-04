@@ -7,7 +7,7 @@ from typing import Any
 import pandas as pd
 
 from .config import DATA_DIR
-from .optimizer import load_optimized_strategy, optimize_strategy_windows
+from .optimizer import load_optimized_strategy, optimize_strategy_two_stage
 from .utils import safe_to_csv
 from .virtual_portfolio import DEFAULT_START_DATE, simulate_recommendation_portfolio
 
@@ -43,7 +43,7 @@ def evaluate_strategy_performance(auto_optimize: bool = False) -> dict[str, Any]
 
     review_result: dict[str, Any] = {}
     if auto_optimize and needs_review:
-        _, best = optimize_strategy_windows()
+        _, best = optimize_strategy_two_stage()
         review_result = best
 
     result: dict[str, Any] = {
