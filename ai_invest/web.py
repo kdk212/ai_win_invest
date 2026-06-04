@@ -11,7 +11,7 @@ import pandas as pd
 from .config import DATA_DIR
 from .secrets import load_web_password
 from .tracker import latest_recommendation_file
-from .utils import pct
+from .utils import pct, safe_to_csv
 from .virtual_portfolio import DEFAULT_START_DATE, simulate_recommendation_portfolio
 
 
@@ -33,7 +33,11 @@ def _load_recommendations(selected_date: str | None = None) -> pd.DataFrame:
         return pd.read_csv(path, dtype={"ticker": str})
     try:
         from .strategy import build_recommendations
-        return build_recommendations()
+        recs = build_recommendations()
+        if not recs.empty and "as_of" in recs:
+            out = DATA_DIR / "recommendations" / f"recommendations_{recs['as_of'].iloc[0]}.csv"
+            safe_to_csv(recs, out, index=False, encoding="utf-8-sig")
+        return recs
     except Exception:
         return pd.DataFrame()
 
