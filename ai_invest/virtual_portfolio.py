@@ -51,7 +51,7 @@ def _to_date(value: object) -> date | None:
         return None
 
 
-def _load_recommendations() -> list[pd.DataFrame]:
+def _read_recommendations() -> list[pd.DataFrame]:
     frames: list[pd.DataFrame] = []
     for path in recommendation_files():
         try:
@@ -63,44 +63,36 @@ def _load_recommendations() -> list[pd.DataFrame]:
     return frames
 
 
-def _price_start(start_date: date) -> str:
-    return iso_date(start_date - timedelta(days=7))
-
-
-def _price_end() -> str:
-    return iso_date(pd.Timestamp.today().date())
-
-
-def _load_price_data(tickers: list[str], start_date: date) -> dict[str, pd.DataFrame]:
+def _load_prices(tickers: list[str], start_date: date) -> dict[str, pd.DataFrame]:
     prices: dict[str, pd.DataFrame] = {}
+    start = iso_date(start_date - timedelta(days=7))
+    end = iso_date(pd.Timestamp.today().date())
     for ticker in sorted(set(tickers)):
         try:
-            frame = get_ohlcv(ticker, _price_start(start_date), _price_end())
+            frame = get_ohlcv(ticker, start, end)
         except Exception:
             frame = pd.DataFrame()
         if frame.empty:
             continue
         frame = frame.copy()
         frame.index = pd.to_datetime(frame.index)
-        for column in ("open", "high", "low", "close"):
-            if column in frame:
-                frame[column] = pd.to_numeric(frame[column], errors="coerce")
-        prices[ticker] = frame.dropna(subset=["open", "high", "low", "close"], how="any")
+        for col in ("open", "high", "low", "close"):
+            if col in frame:
+                frame[col] = pd.to_numeric(frame[col], errors="coerce")
+        frame = frame.dropna(subset=["open", "high", "low", "close"], how="any")
+        if not frame.empty:
+            prices[ticker] = frame
     return prices
 
 
 def _next_buy_open(price: pd.DataFrame, rec_date: date, start_date: date) -> tuple[date, float] | None:
-    if price.empty:
-        return None
-    buy_from = max(rec_date, start_date)
-    rows = price[price.index.date >= buy_from]
+    rows = price[price.index.date >= max(rec_date, start_date)]
     if rows.empty:
         return None
-    first = rows.iloc[0]
-    return rows.index[0].date(), float(first["open"])
+    return rows.index[0].date(), float(rows.iloc[0]["open"])
 
 
-def _optional_float(value: object) -> float | None:
+def _float_or_none(value: object) -> float | None:
     try:
         if value is None or pd.isna(value):
             return None
@@ -109,16 +101,16 @@ def _optional_float(value: object) -> float | None:
         return None
 
 
-def _build_buy_events(recommendations: list[pd.DataFrame], prices: dict[str, pd.DataFrame], start_date: date) -> list[Lot]:
+def _buy_events(recommendations: list[pd.DataFrame], prices: dict[str, pd.DataFrame], start_date: date) -> list[Lot]:
     lots: list[Lot] = []
     for recs in recommendations:
         rec_date = _to_date(recs["as_of"].iloc[0])
         if rec_date is None:
             continue
         daily = recs.copy()
+        daily["ticker"] = daily["ticker"].astype(str).str.zfill(6)
         daily["score"] = pd.to_numeric(daily.get("score"), errors="coerce")
-        daily = daily.sort_values("score", ascending=False)
-        daily = daily[daily["ticker"].astype(str).str.zfill(6).isin(prices)]
+        daily = daily[daily["ticker"].isin(prices)].sort_values("score", ascending=False)
         if daily.empty:
             continue
         allocation = 1.0 / len(daily)
@@ -136,18 +128,18 @@ def _build_buy_events(recommendations: list[pd.DataFrame], prices: dict[str, pd.
                     buy_date=buy_date,
                     buy_price=buy_price,
                     allocation=allocation,
-                    stop_price=_optional_float(row.get("stop_price")),
-                    take_profit_trigger_price=_optional_float(row.get("take_profit_trigger_price")),
-                    take_profit_trailing_pct=_optional_float(row.get("take_profit_trailing_pct")) or 0.10,
+                    stop_price=_float_or_none(row.get("stop_price")),
+                    take_profit_trigger_price=_float_or_none(row.get("take_profit_trigger_price")),
+                    take_profit_trailing_pct=_float_or_none(row.get("take_profit_trailing_pct")) or 0.10,
                 )
             )
     return sorted(lots, key=lambda lot: (lot.buy_date, lot.ticker, lot.rec_date))
 
 
 def _trade_dates(prices: dict[str, pd.DataFrame], start_date: date) -> list[date]:
-    dates = set()
+    dates: set[date] = set()
     for frame in prices.values():
-        dates.update(index_date for index_date in frame.index.date if index_date >= start_date)
+        dates.update(day for day in frame.index.date if day >= start_date)
     return sorted(dates)
 
 
@@ -158,13 +150,6 @@ def _price_on(frame: pd.DataFrame | None, trading_date: date) -> pd.Series | Non
     return None if rows.empty else rows.iloc[0]
 
 
-def _current_close(prices: dict[str, pd.DataFrame], ticker: str) -> tuple[date | None, float | None]:
-    frame = prices.get(ticker)
-    if frame is None or frame.empty:
-        return None, None
-    return frame.index[-1].date(), float(frame.iloc[-1]["close"])
-
-
 def _close_ticker(lots: list[Lot], ticker: str, trading_date: date, sell_price: float, reason: str) -> None:
     for lot in lots:
         if lot.ticker == ticker and lot.active and lot.buy_date <= trading_date:
@@ -173,19 +158,19 @@ def _close_ticker(lots: list[Lot], ticker: str, trading_date: date, sell_price: 
             lot.sell_reason = reason
 
 
-def _daily_snapshot(active: list[Lot], prices: dict[str, pd.DataFrame], trading_date: date) -> dict[str, object]:
-    contributed = sum(lot.allocation for lot in active if lot.buy_date <= trading_date)
-    realized = sum((lot.sell_price or 0.0) * lot.shares - lot.allocation for lot in active if lot.sell_date and lot.sell_date <= trading_date)
-    market_value = 0.0
+def _daily_snapshot(lots: list[Lot], prices: dict[str, pd.DataFrame], trading_date: date) -> dict[str, object]:
+    contributed = sum(lot.allocation for lot in lots if lot.buy_date <= trading_date)
+    realized = sum((lot.sell_price or 0.0) * lot.shares - lot.allocation for lot in lots if lot.sell_date and lot.sell_date <= trading_date)
     active_cost = 0.0
-    for lot in active:
+    market_value = 0.0
+    for lot in lots:
         if not lot.active or lot.buy_date > trading_date:
             continue
-        day_price = _price_on(prices.get(lot.ticker), trading_date)
-        if day_price is None:
+        price = _price_on(prices.get(lot.ticker), trading_date)
+        if price is None:
             continue
         active_cost += lot.allocation
-        market_value += lot.shares * float(day_price["close"])
+        market_value += lot.shares * float(price["close"])
     unrealized = market_value - active_cost
     return {
         "date": trading_date.isoformat(),
@@ -197,20 +182,21 @@ def _daily_snapshot(active: list[Lot], prices: dict[str, pd.DataFrame], trading_
         "total_pnl": realized + unrealized,
         "total_return": (realized + unrealized) / contributed if contributed else 0.0,
         "unrealized_return": unrealized / active_cost if active_cost else 0.0,
-        "active_names": len({lot.ticker for lot in active if lot.active and lot.buy_date <= trading_date}),
+        "active_names": len({lot.ticker for lot in lots if lot.active and lot.buy_date <= trading_date}),
     }
 
 
-def _holding_rows(lots: list[Lot], prices: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    active_lots = [lot for lot in lots if lot.active]
-    active_cost = sum(lot.allocation for lot in active_lots)
+def _holdings(lots: list[Lot], prices: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    active = [lot for lot in lots if lot.active]
+    active_cost = sum(lot.allocation for lot in active)
     rows: list[dict[str, object]] = []
-    for ticker in sorted({lot.ticker for lot in active_lots}):
-        ticker_lots = [lot for lot in active_lots if lot.ticker == ticker]
+    for ticker in sorted({lot.ticker for lot in active}):
+        ticker_lots = [lot for lot in active if lot.ticker == ticker]
         cost = sum(lot.allocation for lot in ticker_lots)
         shares = sum(lot.shares for lot in ticker_lots)
-        avg_buy = cost / shares if shares else 0.0
-        price_date, current_price = _current_close(prices, ticker)
+        frame = prices.get(ticker)
+        current_date = frame.index[-1].date().isoformat() if frame is not None and not frame.empty else ""
+        current_price = float(frame.iloc[-1]["close"]) if frame is not None and not frame.empty else None
         market_value = shares * current_price if current_price is not None else None
         rows.append(
             {
@@ -219,9 +205,9 @@ def _holding_rows(lots: list[Lot], prices: dict[str, pd.DataFrame]) -> pd.DataFr
                 "first_buy_date": min(lot.buy_date for lot in ticker_lots).isoformat(),
                 "lots": len(ticker_lots),
                 "weight": cost / active_cost if active_cost else 0.0,
-                "avg_buy_price": avg_buy,
+                "avg_buy_price": cost / shares if shares else 0.0,
                 "current_price": current_price,
-                "current_price_date": price_date.isoformat() if price_date else "",
+                "current_price_date": current_date,
                 "market_value": market_value,
                 "return_pct": (market_value / cost - 1) if market_value is not None and cost else None,
                 "stop_price": max((lot.stop_price or 0.0) for lot in ticker_lots) or None,
@@ -231,7 +217,7 @@ def _holding_rows(lots: list[Lot], prices: dict[str, pd.DataFrame]) -> pd.DataFr
     return pd.DataFrame(rows).sort_values("weight", ascending=False) if rows else pd.DataFrame()
 
 
-def _closed_rows(lots: list[Lot]) -> pd.DataFrame:
+def _closed(lots: list[Lot]) -> pd.DataFrame:
     rows = []
     for lot in lots:
         if lot.active:
@@ -240,7 +226,6 @@ def _closed_rows(lots: list[Lot]) -> pd.DataFrame:
             {
                 "ticker": lot.ticker,
                 "name": lot.name,
-                "rec_date": lot.rec_date.isoformat(),
                 "buy_date": lot.buy_date.isoformat(),
                 "buy_price": lot.buy_price,
                 "sell_date": lot.sell_date.isoformat() if lot.sell_date else "",
@@ -253,16 +238,22 @@ def _closed_rows(lots: list[Lot]) -> pd.DataFrame:
 
 
 def simulate_recommendation_portfolio(start_date: date = DEFAULT_START_DATE) -> dict[str, pd.DataFrame | str | float]:
-    recommendations = _load_recommendations()
+    recommendations = _read_recommendations()
     if not recommendations:
-        return _empty_result("No saved recommendation files yet.")
+        return _empty("저장된 추천 파일이 없습니다. daily 작업이 성공해야 가상 포트폴리오가 생성됩니다.")
+
     tickers = sorted({str(row["ticker"]).zfill(6) for recs in recommendations for _, row in recs.iterrows()})
-    prices = _load_price_data(tickers, start_date)
+    prices = _load_prices(tickers, start_date)
     if not prices:
-        return _empty_result("Price data is unavailable.")
-    lots = _build_buy_events(recommendations, prices, start_date)
+        result = _empty("추천 파일은 있지만 가격 데이터를 불러오지 못했습니다. KRX/FinanceDataReader 접속 상태를 확인해야 합니다.")
+        result.update({"recommendation_days": float(len(recommendations)), "recommendation_tickers": float(len(tickers))})
+        return result
+
+    lots = _buy_events(recommendations, prices, start_date)
     if not lots:
-        return _empty_result("No recommendation could be converted into a buy event.")
+        result = _empty("추천 파일과 가격 데이터는 있으나 2026-06-01 이후 시초가 매수로 전환된 종목이 없습니다.")
+        result.update({"recommendation_days": float(len(recommendations)), "recommendation_tickers": float(len(tickers)), "priced_tickers": float(len(prices))})
+        return result
 
     pending = list(lots)
     active: list[Lot] = []
@@ -271,11 +262,11 @@ def simulate_recommendation_portfolio(start_date: date = DEFAULT_START_DATE) -> 
         while pending and pending[0].buy_date == trading_date:
             active.append(pending.pop(0))
         for ticker in sorted({lot.ticker for lot in active if lot.active}):
-            day_price = _price_on(prices.get(ticker), trading_date)
-            if day_price is None:
+            price = _price_on(prices.get(ticker), trading_date)
+            if price is None:
                 continue
-            low = float(day_price["low"])
-            high = float(day_price["high"])
+            low = float(price["low"])
+            high = float(price["high"])
             ticker_lots = [lot for lot in active if lot.ticker == ticker and lot.active]
             for lot in ticker_lots:
                 lot.peak_price = max(lot.peak_price, high)
@@ -285,17 +276,16 @@ def simulate_recommendation_portfolio(start_date: date = DEFAULT_START_DATE) -> 
                 continue
             trailing_hits = []
             for lot in ticker_lots:
-                trigger = lot.take_profit_trigger_price
-                if trigger and lot.peak_price >= trigger:
-                    trailing_price = lot.peak_price * (1 - lot.take_profit_trailing_pct)
-                    if low <= trailing_price:
-                        trailing_hits.append(trailing_price)
+                if lot.take_profit_trigger_price and lot.peak_price >= lot.take_profit_trigger_price:
+                    trailing = lot.peak_price * (1 - lot.take_profit_trailing_pct)
+                    if low <= trailing:
+                        trailing_hits.append(trailing)
             if trailing_hits:
                 _close_ticker(active, ticker, trading_date, float(max(trailing_hits)), "take_profit_trailing")
         daily_rows.append(_daily_snapshot(active, prices, trading_date))
 
-    holdings = _holding_rows(active, prices)
-    closed = _closed_rows(active)
+    holdings = _holdings(active, prices)
+    closed = _closed(active)
     daily = pd.DataFrame(daily_rows)
     latest = daily.iloc[-1].to_dict() if not daily.empty else {}
     return {
@@ -307,10 +297,14 @@ def simulate_recommendation_portfolio(start_date: date = DEFAULT_START_DATE) -> 
         "total_return": float(latest.get("total_return", 0.0) or 0.0),
         "unrealized_return": float(latest.get("unrealized_return", 0.0) or 0.0),
         "active_count": float(len(holdings)),
+        "recommendation_days": float(len(recommendations)),
+        "recommendation_tickers": float(len(tickers)),
+        "priced_tickers": float(len(prices)),
+        "buy_events": float(len(lots)),
     }
 
 
-def _empty_result(message: str) -> dict[str, pd.DataFrame | str | float]:
+def _empty(message: str) -> dict[str, pd.DataFrame | str | float]:
     return {
         "status": message,
         "holdings": pd.DataFrame(),
@@ -320,4 +314,8 @@ def _empty_result(message: str) -> dict[str, pd.DataFrame | str | float]:
         "total_return": 0.0,
         "unrealized_return": 0.0,
         "active_count": 0.0,
+        "recommendation_days": 0.0,
+        "recommendation_tickers": 0.0,
+        "priced_tickers": 0.0,
+        "buy_events": 0.0,
     }
