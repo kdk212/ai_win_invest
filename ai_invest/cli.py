@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import date
+from datetime import date, timedelta
 
 from .backtest import optimize_score_threshold, optimize_stop_loss, optimize_take_profit, run_backtest, summarize_backtest
 from .config import DATA_DIR, ensure_dirs
@@ -30,6 +30,34 @@ def _cmd_daily(args: argparse.Namespace) -> None:
     if args.send_telegram:
         sent = send_telegram(message)
         print("Telegram sent" if sent else "Telegram skipped: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing.")
+
+
+def _save_recommendations_for_date(as_of: date, top_n: int | None = None, with_news: bool = False) -> tuple[str, int]:
+    recs = build_recommendations(as_of=as_of, top_n=top_n)
+    if recs.empty:
+        return as_of.isoformat(), 0
+    if with_news:
+        recs = enrich_recommendations_with_news(recs)
+    out = DATA_DIR / "recommendations" / f"recommendations_{recs['as_of'].iloc[0]}.csv"
+    safe_to_csv(recs, out, index=False, encoding="utf-8-sig")
+    return str(recs["as_of"].iloc[0]), len(recs)
+
+
+def _cmd_backfill_recommendations(args: argparse.Namespace) -> None:
+    ensure_dirs()
+    start = date.fromisoformat(args.start)
+    end = date.fromisoformat(args.end) if args.end else date.today()
+    current = start
+    saved: dict[str, int] = {}
+    while current <= end:
+        as_of, count = _save_recommendations_for_date(current, top_n=args.top_n, with_news=args.with_news)
+        if count:
+            saved[as_of] = count
+            print(f"Saved {as_of}: {count} recommendations")
+        else:
+            print(f"Skipped {current.isoformat()}: no recommendation candidates")
+        current += timedelta(days=1)
+    print(f"Backfill complete: {len(saved)} recommendation date files")
 
 
 def _cmd_backtest(args: argparse.Namespace) -> None:
@@ -89,7 +117,6 @@ def _format_strategy_review(start: str, end: str | None, top_n: int) -> str:
     score = optimize_score_threshold(start, end, top_n).head(5)
     stop = optimize_stop_loss(start, end, top_n).head(5)
     take_profit = optimize_take_profit(start, end, top_n).head(5)
-
     lines = [
         "[AI Invest] Weekly strategy review",
         "",
@@ -105,30 +132,16 @@ def _format_strategy_review(start: str, end: str | None, top_n: int) -> str:
             f"- raw >= {row['score_threshold']:.2f} | avg {row['avg_positions']:.2f} positions | "
             f"CAGR {pct(row['cagr'])} | MDD {pct(row['mdd'])} | Sharpe {row['sharpe']:.2f}"
         )
-
     lines.extend(["", "Stop multiplier candidates"])
     for _, row in stop.iterrows():
-        lines.append(
-            f"- multiplier {row['stop_multiplier']:.1f} | CAGR {pct(row['cagr'])} | "
-            f"MDD {pct(row['mdd'])} | Sharpe {row['sharpe']:.2f}"
-        )
-
+        lines.append(f"- multiplier {row['stop_multiplier']:.1f} | CAGR {pct(row['cagr'])} | MDD {pct(row['mdd'])} | Sharpe {row['sharpe']:.2f}")
     lines.extend(["", "Take-profit / trailing candidates"])
     for _, row in take_profit.iterrows():
         lines.append(
             f"- trigger {pct(row['take_profit_trigger_pct'])}, trail {pct(row['take_profit_trailing_pct'])} | "
             f"CAGR {pct(row['cagr'])} | MDD {pct(row['mdd'])} | Sharpe {row['sharpe']:.2f}"
         )
-
-    lines.extend(
-        [
-            "",
-            "====================",
-            "",
-            "Review only. Strategy settings are not changed automatically.",
-            "Apply changes only after confirming stability across multiple periods.",
-        ]
-    )
+    lines.extend(["", "====================", "", "Review only. Strategy settings are not changed automatically.", "Apply changes only after confirming stability across multiple periods."])
     return "\n".join(lines)
 
 
@@ -162,6 +175,13 @@ def main() -> None:
     daily.add_argument("--send-telegram", action="store_true")
     daily.add_argument("--with-news", action="store_true")
     daily.set_defaults(func=_cmd_daily)
+
+    backfill = sub.add_parser("backfill-recommendations", help="Generate recommendation files for a date range")
+    backfill.add_argument("--start", default="2026-06-01")
+    backfill.add_argument("--end", default=None)
+    backfill.add_argument("--top-n", type=int, default=None)
+    backfill.add_argument("--with-news", action="store_true")
+    backfill.set_defaults(func=_cmd_backfill_recommendations)
 
     backtest = sub.add_parser("backtest", help="Run a strategy backtest")
     backtest.add_argument("--start", default="2023-01-01")
