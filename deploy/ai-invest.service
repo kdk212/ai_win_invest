@@ -1,0 +1,15 @@
+[Unit]
+Description=AI Invest Korea web service
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/ai_win_invest
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/ubuntu/ai_win_invest/.venv/bin/python main.py web --port 8787
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
