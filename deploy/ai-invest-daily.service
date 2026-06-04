@@ -7,5 +7,5 @@ Type=oneshot
 User=ubuntu
 WorkingDirectory=/home/ubuntu/ai_win_invest
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/home/ubuntu/ai_win_invest/.venv/bin/python main.py daily --with-news
+ExecStart=/home/ubuntu/ai_win_invest/.venv/bin/python main.py daily --with-news --send-telegram
 ExecStart=/home/ubuntu/ai_win_invest/.venv/bin/python main.py monitor-strategy --auto-optimize
