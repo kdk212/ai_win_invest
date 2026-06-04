@@ -1,0 +1,9 @@
+[Unit]
+Description=Run AI Invest Korea weekly strategy optimization
+
+[Timer]
+OnCalendar=Sun *-*-* 12:20:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
