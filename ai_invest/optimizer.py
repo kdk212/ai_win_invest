@@ -39,42 +39,96 @@ def _objective(summary: dict[str, float]) -> float:
 
 def _validation_summary(result: pd.DataFrame, days: int = 42) -> dict[str, float]:
     if result.empty:
-        return {"validation_total_return": 0.0, "validation_cagr": 0.0, "validation_mdd": 0.0, "validation_sharpe": 0.0}
+        return {
+            "validation_total_return": 0.0,
+            "validation_cagr": 0.0,
+            "validation_mdd": 0.0,
+            "validation_sharpe": 0.0,
+            "validation_avg_return": 0.0,
+            "validation_worst_return": 0.0,
+            "validation_weak_count": 0.0,
+        }
     window = result.tail(min(days, len(result))).copy()
     if window.empty:
-        return {"validation_total_return": 0.0, "validation_cagr": 0.0, "validation_mdd": 0.0, "validation_sharpe": 0.0}
+        return {
+            "validation_total_return": 0.0,
+            "validation_cagr": 0.0,
+            "validation_mdd": 0.0,
+            "validation_sharpe": 0.0,
+            "validation_avg_return": 0.0,
+            "validation_worst_return": 0.0,
+            "validation_weak_count": 0.0,
+        }
     base_equity = float(window["equity"].iloc[0])
     if base_equity:
         window["equity"] = window["equity"].astype(float) / base_equity
     summary = summarize_backtest(window)
+    fold_returns = []
+    fold_mdds = []
+    for fold in range(3):
+        end_idx = len(result) - fold * days
+        start_idx = max(0, end_idx - days)
+        fold_window = result.iloc[start_idx:end_idx].copy()
+        if len(fold_window) < 5:
+            continue
+        fold_base = float(fold_window["equity"].iloc[0])
+        if fold_base:
+            fold_window["equity"] = fold_window["equity"].astype(float) / fold_base
+        fold_summary = summarize_backtest(fold_window)
+        fold_returns.append(float(fold_summary["total_return"]))
+        fold_mdds.append(float(fold_summary["mdd"]))
+    validation_avg_return = float(pd.Series(fold_returns).mean()) if fold_returns else 0.0
+    validation_worst_return = float(min(fold_returns)) if fold_returns else 0.0
+    validation_weak_count = float(
+        sum(1 for ret, mdd in zip(fold_returns, fold_mdds) if ret < 0 or mdd <= -0.12)
+    )
     return {
         "validation_total_return": float(summary["total_return"]),
         "validation_cagr": float(summary["cagr"]),
         "validation_mdd": float(summary["mdd"]),
         "validation_sharpe": float(summary["sharpe"]),
+        "validation_avg_return": validation_avg_return,
+        "validation_worst_return": validation_worst_return,
+        "validation_weak_count": validation_weak_count,
     }
 
 
 def _selection_objective(summary: dict[str, float], validation: dict[str, float]) -> float:
     train_score = _objective(summary)
     validation_total_return = float(validation.get("validation_total_return", 0.0))
+    validation_avg_return = float(validation.get("validation_avg_return", validation_total_return))
+    validation_worst_return = float(validation.get("validation_worst_return", validation_total_return))
+    validation_weak_count = float(validation.get("validation_weak_count", 0.0))
     validation_cagr = float(validation.get("validation_cagr", 0.0))
     validation_mdd = float(validation.get("validation_mdd", 0.0))
     validation_sharpe = float(validation.get("validation_sharpe", 0.0))
     validation_score = validation_cagr * max(0.10, 1.0 + validation_mdd) + 0.10 * validation_sharpe
     stability_penalty = max(0.0, float(summary.get("cagr", 0.0)) - max(validation_cagr, 0.0)) * 0.15
     validation_loss_penalty = max(0.0, -validation_total_return) * 4.0
+    validation_fold_loss_penalty = max(0.0, -validation_avg_return) * 3.0 + max(0.0, -validation_worst_return) * 2.0
+    validation_weak_penalty = validation_weak_count * 0.08
     validation_drawdown_penalty = max(0.0, abs(validation_mdd) - 0.08) * 2.0
-    return 0.70 * train_score + 0.30 * validation_score - stability_penalty - validation_loss_penalty - validation_drawdown_penalty
+    return (
+        0.70 * train_score
+        + 0.30 * validation_score
+        - stability_penalty
+        - validation_loss_penalty
+        - validation_fold_loss_penalty
+        - validation_weak_penalty
+        - validation_drawdown_penalty
+    )
 
 
 def _validation_grade(validation: dict[str, float]) -> str:
     validation_total_return = float(validation.get("validation_total_return", 0.0))
+    validation_avg_return = float(validation.get("validation_avg_return", validation_total_return))
+    validation_worst_return = float(validation.get("validation_worst_return", validation_total_return))
+    validation_weak_count = float(validation.get("validation_weak_count", 0.0))
     validation_mdd = float(validation.get("validation_mdd", 0.0))
     validation_sharpe = float(validation.get("validation_sharpe", 0.0))
-    if validation_total_return >= 0 and validation_mdd > -0.08 and validation_sharpe >= 0:
+    if validation_total_return >= 0 and validation_avg_return >= 0 and validation_worst_return >= -0.03 and validation_mdd > -0.08 and validation_sharpe >= 0:
         return "pass"
-    if validation_total_return < 0 or validation_mdd <= -0.12:
+    if validation_total_return < 0 or validation_avg_return < 0 or validation_worst_return < -0.08 or validation_mdd <= -0.12 or validation_weak_count >= 2:
         return "weak"
     return "watch"
 
@@ -111,6 +165,9 @@ def _pick_best(report: pd.DataFrame, end: str, phase: str) -> dict[str, Any]:
         "validation_cagr": float(best_row.get("validation_cagr", 0.0)),
         "validation_mdd": float(best_row.get("validation_mdd", 0.0)),
         "validation_sharpe": float(best_row.get("validation_sharpe", 0.0)),
+        "validation_avg_return": float(best_row.get("validation_avg_return", 0.0)),
+        "validation_worst_return": float(best_row.get("validation_worst_return", 0.0)),
+        "validation_weak_count": float(best_row.get("validation_weak_count", 0.0)),
         "validation_grade": str(best_row.get("validation_grade", "-")),
     }
 
