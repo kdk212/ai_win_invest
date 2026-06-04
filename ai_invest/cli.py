@@ -9,7 +9,7 @@ from .monitor import evaluate_strategy_performance
 from .news import enrich_recommendations_with_news
 from .optimizer import optimize_strategy_two_stage
 from .strategy import build_recommendations
-from .telegram import format_recommendations, send_telegram
+from .telegram import format_recommendations, format_strategy_monitor, send_telegram
 from .tracker import update_recommendation_returns
 from .utils import pct, safe_to_csv
 from .web import serve
@@ -150,6 +150,9 @@ def _cmd_monitor_strategy(args: argparse.Namespace) -> None:
     print(f"Needs review: {result['needs_review']}")
     print(f"Auto optimized: {result['auto_optimized']}")
     print("Saved: data/performance/strategy_monitor.json")
+    if args.send_telegram and (result["needs_review"] or result["auto_optimized"]):
+        sent = send_telegram(format_strategy_monitor(result))
+        print("Telegram sent" if sent else "Telegram skipped: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing.")
 
 
 def _format_strategy_review(start: str, end: str | None, top_n: int) -> str:
@@ -270,6 +273,7 @@ def main() -> None:
 
     monitor_strategy = sub.add_parser("monitor-strategy", help="Compare live virtual portfolio return with optimized backtest expectation")
     monitor_strategy.add_argument("--auto-optimize", action="store_true")
+    monitor_strategy.add_argument("--send-telegram", action="store_true")
     monitor_strategy.set_defaults(func=_cmd_monitor_strategy)
 
     review = sub.add_parser("review-strategy", help="Send a weekly strategy optimization review")
