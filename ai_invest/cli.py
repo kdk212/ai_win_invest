@@ -7,7 +7,7 @@ from .backtest import optimize_score_threshold, optimize_stop_loss, optimize_tak
 from .config import DATA_DIR, ensure_dirs
 from .monitor import evaluate_strategy_performance
 from .news import enrich_recommendations_with_news
-from .optimizer import optimize_strategy_windows
+from .optimizer import optimize_strategy_two_stage
 from .strategy import build_recommendations
 from .telegram import format_recommendations, send_telegram
 from .tracker import update_recommendation_returns
@@ -120,11 +120,12 @@ def _cmd_optimize_take_profit(args: argparse.Namespace) -> None:
 def _cmd_optimize_strategy(args: argparse.Namespace) -> None:
     ensure_dirs()
     windows = [int(value.strip()) for value in args.windows.split(",") if value.strip()]
-    report, best = optimize_strategy_windows(end=args.end, windows=windows, verbose=True)
+    report, best = optimize_strategy_two_stage(end=args.end, windows=windows, verbose=True)
     if report.empty or not best:
         print("Strategy optimization did not produce a valid candidate.")
         return
-    print("Strategy optimization complete")
+    print("Two-stage strategy optimization complete")
+    print(f"Selection phase: {best.get('selection_phase', '-')}")
     print(f"Selected window: {best['window_months']} months ({best['start']} ~ {best['end']})")
     print(f"Top N: {best['top_n']}")
     print(f"Raw score threshold: {best['score_threshold']:.2f}")
