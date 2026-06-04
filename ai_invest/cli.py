@@ -7,7 +7,7 @@ from .backtest import optimize_score_threshold, optimize_stop_loss, optimize_tak
 from .config import DATA_DIR, ensure_dirs
 from .monitor import evaluate_strategy_performance
 from .news import enrich_recommendations_with_news
-from .optimizer import optimize_strategy_two_stage
+from .optimizer import load_optimized_strategy, optimize_strategy_two_stage
 from .strategy import build_recommendations
 from .telegram import format_recommendations, format_strategy_monitor, send_telegram
 from .tracker import update_recommendation_returns
@@ -155,6 +155,30 @@ def _cmd_monitor_strategy(args: argparse.Namespace) -> None:
         print("Telegram sent" if sent else "Telegram skipped: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing.")
 
 
+def _cmd_strategy_status(_: argparse.Namespace) -> None:
+    strategy = load_optimized_strategy()
+    if not strategy:
+        print("No optimized strategy is saved yet. Run: python main.py optimize-strategy --windows 12,18,24")
+        return
+    print("Optimized strategy status")
+    print(f"Selected at: {strategy.get('selected_at', '-')}")
+    print(f"Selection phase: {strategy.get('selection_phase', '-')}")
+    print(f"Window: {strategy.get('window_months', '-')} months ({strategy.get('start', '-')} ~ {strategy.get('end', '-')})")
+    print(f"Top N: {strategy.get('top_n', '-')}")
+    print(f"Raw score threshold: {float(strategy.get('score_threshold', 0.0)):.2f}")
+    print(f"Stop multiplier: {float(strategy.get('stop_multiplier', 0.0)):.2f}")
+    print(
+        f"Take-profit: trigger {pct(strategy.get('take_profit_trigger_pct', 0.0))}, "
+        f"trailing {pct(strategy.get('take_profit_trailing_pct', 0.0))}"
+    )
+    print(f"Backtest CAGR: {pct(strategy.get('cagr', 0.0))}")
+    print(f"Backtest MDD: {pct(strategy.get('mdd', 0.0))}")
+    print(f"Sharpe: {float(strategy.get('sharpe', 0.0)):.2f}")
+    print(f"Recent validation return: {pct(strategy.get('validation_total_return', 0.0))}")
+    print(f"Recent validation MDD: {pct(strategy.get('validation_mdd', 0.0))}")
+    print(f"Recent validation Sharpe: {float(strategy.get('validation_sharpe', 0.0)):.2f}")
+
+
 def _format_strategy_review(start: str, end: str | None, top_n: int) -> str:
     score = optimize_score_threshold(start, end, top_n).head(5)
     stop = optimize_stop_loss(start, end, top_n).head(5)
@@ -275,6 +299,9 @@ def main() -> None:
     monitor_strategy.add_argument("--auto-optimize", action="store_true")
     monitor_strategy.add_argument("--send-telegram", action="store_true")
     monitor_strategy.set_defaults(func=_cmd_monitor_strategy)
+
+    strategy_status = sub.add_parser("strategy-status", help="Show the saved optimized strategy settings")
+    strategy_status.set_defaults(func=_cmd_strategy_status)
 
     review = sub.add_parser("review-strategy", help="Send a weekly strategy optimization review")
     review.add_argument("--start", default="2024-11-01")
