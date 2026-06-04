@@ -5,6 +5,7 @@ from datetime import date, timedelta
 
 from .backtest import optimize_score_threshold, optimize_stop_loss, optimize_take_profit, run_backtest, summarize_backtest
 from .config import DATA_DIR, ensure_dirs
+from .monitor import evaluate_strategy_performance
 from .news import enrich_recommendations_with_news
 from .optimizer import optimize_strategy_windows
 from .strategy import build_recommendations
@@ -65,7 +66,13 @@ def _cmd_backfill_recommendations(args: argparse.Namespace) -> None:
 
 def _cmd_backtest(args: argparse.Namespace) -> None:
     ensure_dirs()
-    result, _ = run_backtest(args.start, args.end, args.top_n, stop_multiplier=args.stop_multiplier, score_threshold=args.score_threshold)
+    result, _ = run_backtest(
+        args.start,
+        args.end,
+        args.top_n,
+        stop_multiplier=args.stop_multiplier,
+        score_threshold=args.score_threshold,
+    )
     summary = summarize_backtest(result)
     print("Backtest summary")
     print(f"Total return: {pct(summary['total_return'])}")
@@ -80,7 +87,10 @@ def _cmd_optimize(args: argparse.Namespace) -> None:
     result = optimize_stop_loss(args.start, args.end, args.top_n)
     print("Stop-loss optimization")
     for _, row in result.iterrows():
-        print(f"multiplier {row['stop_multiplier']:.1f}: CAGR {pct(row['cagr'])}, MDD {pct(row['mdd'])}, Sharpe {row['sharpe']:.2f}")
+        print(
+            f"multiplier {row['stop_multiplier']:.1f}: "
+            f"CAGR {pct(row['cagr'])}, MDD {pct(row['mdd'])}, Sharpe {row['sharpe']:.2f}"
+        )
 
 
 def _cmd_optimize_score(args: argparse.Namespace) -> None:
@@ -88,7 +98,11 @@ def _cmd_optimize_score(args: argparse.Namespace) -> None:
     result = optimize_score_threshold(args.start, args.end, args.top_n)
     print("Raw score threshold optimization")
     for _, row in result.iterrows():
-        print(f"raw >= {row['score_threshold']:.2f}: avg positions {row['avg_positions']:.2f}, CAGR {pct(row['cagr'])}, MDD {pct(row['mdd'])}, Sharpe {row['sharpe']:.2f}")
+        print(
+            f"raw >= {row['score_threshold']:.2f}: "
+            f"avg positions {row['avg_positions']:.2f}, "
+            f"CAGR {pct(row['cagr'])}, MDD {pct(row['mdd'])}, Sharpe {row['sharpe']:.2f}"
+        )
 
 
 def _cmd_optimize_take_profit(args: argparse.Namespace) -> None:
@@ -96,7 +110,11 @@ def _cmd_optimize_take_profit(args: argparse.Namespace) -> None:
     result = optimize_take_profit(args.start, args.end, args.top_n)
     print("Take-profit optimization")
     for _, row in result.iterrows():
-        print(f"trigger {pct(row['take_profit_trigger_pct'])}, trail {pct(row['take_profit_trailing_pct'])}: avg positions {row['avg_positions']:.2f}, CAGR {pct(row['cagr'])}, MDD {pct(row['mdd'])}, Sharpe {row['sharpe']:.2f}")
+        print(
+            f"trigger {pct(row['take_profit_trigger_pct'])}, trail {pct(row['take_profit_trailing_pct'])}: "
+            f"avg positions {row['avg_positions']:.2f}, "
+            f"CAGR {pct(row['cagr'])}, MDD {pct(row['mdd'])}, Sharpe {row['sharpe']:.2f}"
+        )
 
 
 def _cmd_optimize_strategy(args: argparse.Namespace) -> None:
@@ -111,25 +129,72 @@ def _cmd_optimize_strategy(args: argparse.Namespace) -> None:
     print(f"Top N: {best['top_n']}")
     print(f"Raw score threshold: {best['score_threshold']:.2f}")
     print(f"Stop multiplier: {best['stop_multiplier']:.2f}")
-    print(f"Take-profit: trigger {pct(best['take_profit_trigger_pct'])}, trailing {pct(best['take_profit_trailing_pct'])}")
+    print(
+        f"Take-profit: trigger {pct(best['take_profit_trigger_pct'])}, "
+        f"trailing {pct(best['take_profit_trailing_pct'])}"
+    )
     print(f"CAGR: {pct(best['cagr'])}, MDD: {pct(best['mdd'])}, Sharpe: {best['sharpe']:.2f}")
     print("Saved: config/optimized_strategy.json")
+
+
+def _cmd_monitor_strategy(args: argparse.Namespace) -> None:
+    ensure_dirs()
+    result = evaluate_strategy_performance(auto_optimize=args.auto_optimize)
+    print("Strategy performance monitor")
+    print(f"Latest portfolio date: {result['latest_date'] or '-'}")
+    print(f"Elapsed days: {result['elapsed_days']}")
+    print(f"Actual return: {pct(result['actual_total_return'])}")
+    print(f"Expected return: {pct(result['expected_return_from_backtest_cagr'])}")
+    print(f"Shortfall: {pct(result['shortfall'])}")
+    print(f"Needs review: {result['needs_review']}")
+    print(f"Auto optimized: {result['auto_optimized']}")
+    print("Saved: data/performance/strategy_monitor.json")
 
 
 def _format_strategy_review(start: str, end: str | None, top_n: int) -> str:
     score = optimize_score_threshold(start, end, top_n).head(5)
     stop = optimize_stop_loss(start, end, top_n).head(5)
     take_profit = optimize_take_profit(start, end, top_n).head(5)
-    lines = ["[AI Invest] Weekly strategy review", "", f"Period: {start} ~ {end or 'latest'}", f"Max positions: {top_n}", "", "====================", "", "Raw score threshold candidates"]
+
+    lines = [
+        "[AI Invest] Weekly strategy review",
+        "",
+        f"Period: {start} ~ {end or 'latest'}",
+        f"Max positions: {top_n}",
+        "",
+        "====================",
+        "",
+        "Raw score threshold candidates",
+    ]
     for _, row in score.iterrows():
-        lines.append(f"- raw >= {row['score_threshold']:.2f} | avg {row['avg_positions']:.2f} positions | CAGR {pct(row['cagr'])} | MDD {pct(row['mdd'])} | Sharpe {row['sharpe']:.2f}")
+        lines.append(
+            f"- raw >= {row['score_threshold']:.2f} | avg {row['avg_positions']:.2f} positions | "
+            f"CAGR {pct(row['cagr'])} | MDD {pct(row['mdd'])} | Sharpe {row['sharpe']:.2f}"
+        )
+
     lines.extend(["", "Stop multiplier candidates"])
     for _, row in stop.iterrows():
-        lines.append(f"- multiplier {row['stop_multiplier']:.1f} | CAGR {pct(row['cagr'])} | MDD {pct(row['mdd'])} | Sharpe {row['sharpe']:.2f}")
+        lines.append(
+            f"- multiplier {row['stop_multiplier']:.1f} | CAGR {pct(row['cagr'])} | "
+            f"MDD {pct(row['mdd'])} | Sharpe {row['sharpe']:.2f}"
+        )
+
     lines.extend(["", "Take-profit / trailing candidates"])
     for _, row in take_profit.iterrows():
-        lines.append(f"- trigger {pct(row['take_profit_trigger_pct'])}, trail {pct(row['take_profit_trailing_pct'])} | CAGR {pct(row['cagr'])} | MDD {pct(row['mdd'])} | Sharpe {row['sharpe']:.2f}")
-    lines.extend(["", "====================", "", "Review only. Strategy settings are not changed automatically.", "Apply changes only after confirming stability across multiple periods."])
+        lines.append(
+            f"- trigger {pct(row['take_profit_trigger_pct'])}, trail {pct(row['take_profit_trailing_pct'])} | "
+            f"CAGR {pct(row['cagr'])} | MDD {pct(row['mdd'])} | Sharpe {row['sharpe']:.2f}"
+        )
+
+    lines.extend(
+        [
+            "",
+            "====================",
+            "",
+            "Review only. Strategy settings are not changed automatically.",
+            "Apply changes only after confirming stability across multiple periods.",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -201,6 +266,10 @@ def main() -> None:
     optimize_strategy.add_argument("--end", default=None)
     optimize_strategy.add_argument("--windows", default="12,18,24")
     optimize_strategy.set_defaults(func=_cmd_optimize_strategy)
+
+    monitor_strategy = sub.add_parser("monitor-strategy", help="Compare live virtual portfolio return with optimized backtest expectation")
+    monitor_strategy.add_argument("--auto-optimize", action="store_true")
+    monitor_strategy.set_defaults(func=_cmd_monitor_strategy)
 
     review = sub.add_parser("review-strategy", help="Send a weekly strategy optimization review")
     review.add_argument("--start", default="2024-11-01")
