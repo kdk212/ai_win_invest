@@ -36,11 +36,13 @@ def _save_recommendations_for_date(as_of: date, top_n: int | None = None, with_n
     recs = build_recommendations(as_of=as_of, top_n=top_n)
     if recs.empty:
         return as_of.isoformat(), 0
+    recs = recs.copy()
+    recs["as_of"] = as_of.isoformat()
     if with_news:
         recs = enrich_recommendations_with_news(recs)
-    out = DATA_DIR / "recommendations" / f"recommendations_{recs['as_of'].iloc[0]}.csv"
+    out = DATA_DIR / "recommendations" / f"recommendations_{as_of.isoformat()}.csv"
     safe_to_csv(recs, out, index=False, encoding="utf-8-sig")
-    return str(recs["as_of"].iloc[0]), len(recs)
+    return as_of.isoformat(), len(recs)
 
 
 def _cmd_backfill_recommendations(args: argparse.Namespace) -> None:
@@ -62,13 +64,7 @@ def _cmd_backfill_recommendations(args: argparse.Namespace) -> None:
 
 def _cmd_backtest(args: argparse.Namespace) -> None:
     ensure_dirs()
-    result, _ = run_backtest(
-        args.start,
-        args.end,
-        args.top_n,
-        stop_multiplier=args.stop_multiplier,
-        score_threshold=args.score_threshold,
-    )
+    result, _ = run_backtest(args.start, args.end, args.top_n, stop_multiplier=args.stop_multiplier, score_threshold=args.score_threshold)
     summary = summarize_backtest(result)
     print("Backtest summary")
     print(f"Total return: {pct(summary['total_return'])}")
@@ -83,10 +79,7 @@ def _cmd_optimize(args: argparse.Namespace) -> None:
     result = optimize_stop_loss(args.start, args.end, args.top_n)
     print("Stop-loss optimization")
     for _, row in result.iterrows():
-        print(
-            f"multiplier {row['stop_multiplier']:.1f}: "
-            f"CAGR {pct(row['cagr'])}, MDD {pct(row['mdd'])}, Sharpe {row['sharpe']:.2f}"
-        )
+        print(f"multiplier {row['stop_multiplier']:.1f}: CAGR {pct(row['cagr'])}, MDD {pct(row['mdd'])}, Sharpe {row['sharpe']:.2f}")
 
 
 def _cmd_optimize_score(args: argparse.Namespace) -> None:
@@ -94,11 +87,7 @@ def _cmd_optimize_score(args: argparse.Namespace) -> None:
     result = optimize_score_threshold(args.start, args.end, args.top_n)
     print("Raw score threshold optimization")
     for _, row in result.iterrows():
-        print(
-            f"raw >= {row['score_threshold']:.2f}: "
-            f"avg positions {row['avg_positions']:.2f}, "
-            f"CAGR {pct(row['cagr'])}, MDD {pct(row['mdd'])}, Sharpe {row['sharpe']:.2f}"
-        )
+        print(f"raw >= {row['score_threshold']:.2f}: avg positions {row['avg_positions']:.2f}, CAGR {pct(row['cagr'])}, MDD {pct(row['mdd'])}, Sharpe {row['sharpe']:.2f}")
 
 
 def _cmd_optimize_take_profit(args: argparse.Namespace) -> None:
@@ -106,41 +95,22 @@ def _cmd_optimize_take_profit(args: argparse.Namespace) -> None:
     result = optimize_take_profit(args.start, args.end, args.top_n)
     print("Take-profit optimization")
     for _, row in result.iterrows():
-        print(
-            f"trigger {pct(row['take_profit_trigger_pct'])}, trail {pct(row['take_profit_trailing_pct'])}: "
-            f"avg positions {row['avg_positions']:.2f}, "
-            f"CAGR {pct(row['cagr'])}, MDD {pct(row['mdd'])}, Sharpe {row['sharpe']:.2f}"
-        )
+        print(f"trigger {pct(row['take_profit_trigger_pct'])}, trail {pct(row['take_profit_trailing_pct'])}: avg positions {row['avg_positions']:.2f}, CAGR {pct(row['cagr'])}, MDD {pct(row['mdd'])}, Sharpe {row['sharpe']:.2f}")
 
 
 def _format_strategy_review(start: str, end: str | None, top_n: int) -> str:
     score = optimize_score_threshold(start, end, top_n).head(5)
     stop = optimize_stop_loss(start, end, top_n).head(5)
     take_profit = optimize_take_profit(start, end, top_n).head(5)
-    lines = [
-        "[AI Invest] Weekly strategy review",
-        "",
-        f"Period: {start} ~ {end or 'latest'}",
-        f"Max positions: {top_n}",
-        "",
-        "====================",
-        "",
-        "Raw score threshold candidates",
-    ]
+    lines = ["[AI Invest] Weekly strategy review", "", f"Period: {start} ~ {end or 'latest'}", f"Max positions: {top_n}", "", "====================", "", "Raw score threshold candidates"]
     for _, row in score.iterrows():
-        lines.append(
-            f"- raw >= {row['score_threshold']:.2f} | avg {row['avg_positions']:.2f} positions | "
-            f"CAGR {pct(row['cagr'])} | MDD {pct(row['mdd'])} | Sharpe {row['sharpe']:.2f}"
-        )
+        lines.append(f"- raw >= {row['score_threshold']:.2f} | avg {row['avg_positions']:.2f} positions | CAGR {pct(row['cagr'])} | MDD {pct(row['mdd'])} | Sharpe {row['sharpe']:.2f}")
     lines.extend(["", "Stop multiplier candidates"])
     for _, row in stop.iterrows():
         lines.append(f"- multiplier {row['stop_multiplier']:.1f} | CAGR {pct(row['cagr'])} | MDD {pct(row['mdd'])} | Sharpe {row['sharpe']:.2f}")
     lines.extend(["", "Take-profit / trailing candidates"])
     for _, row in take_profit.iterrows():
-        lines.append(
-            f"- trigger {pct(row['take_profit_trigger_pct'])}, trail {pct(row['take_profit_trailing_pct'])} | "
-            f"CAGR {pct(row['cagr'])} | MDD {pct(row['mdd'])} | Sharpe {row['sharpe']:.2f}"
-        )
+        lines.append(f"- trigger {pct(row['take_profit_trigger_pct'])}, trail {pct(row['take_profit_trailing_pct'])} | CAGR {pct(row['cagr'])} | MDD {pct(row['mdd'])} | Sharpe {row['sharpe']:.2f}")
     lines.extend(["", "====================", "", "Review only. Strategy settings are not changed automatically.", "Apply changes only after confirming stability across multiple periods."])
     return "\n".join(lines)
 
