@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from .backtest import optimize_score_threshold, optimize_stop_loss, optimize_take_profit, run_backtest, summarize_backtest
 from .config import DATA_DIR, ensure_dirs
 from .news import enrich_recommendations_with_news
+from .optimizer import optimize_strategy_windows
 from .strategy import build_recommendations
 from .telegram import format_recommendations, send_telegram
 from .tracker import update_recommendation_returns
@@ -98,6 +99,23 @@ def _cmd_optimize_take_profit(args: argparse.Namespace) -> None:
         print(f"trigger {pct(row['take_profit_trigger_pct'])}, trail {pct(row['take_profit_trailing_pct'])}: avg positions {row['avg_positions']:.2f}, CAGR {pct(row['cagr'])}, MDD {pct(row['mdd'])}, Sharpe {row['sharpe']:.2f}")
 
 
+def _cmd_optimize_strategy(args: argparse.Namespace) -> None:
+    ensure_dirs()
+    windows = [int(value.strip()) for value in args.windows.split(",") if value.strip()]
+    report, best = optimize_strategy_windows(end=args.end, windows=windows)
+    if report.empty or not best:
+        print("Strategy optimization did not produce a valid candidate.")
+        return
+    print("Strategy optimization complete")
+    print(f"Selected window: {best['window_months']} months ({best['start']} ~ {best['end']})")
+    print(f"Top N: {best['top_n']}")
+    print(f"Raw score threshold: {best['score_threshold']:.2f}")
+    print(f"Stop multiplier: {best['stop_multiplier']:.2f}")
+    print(f"Take-profit: trigger {pct(best['take_profit_trigger_pct'])}, trailing {pct(best['take_profit_trailing_pct'])}")
+    print(f"CAGR: {pct(best['cagr'])}, MDD: {pct(best['mdd'])}, Sharpe: {best['sharpe']:.2f}")
+    print("Saved: config/optimized_strategy.json")
+
+
 def _format_strategy_review(start: str, end: str | None, top_n: int) -> str:
     score = optimize_score_threshold(start, end, top_n).head(5)
     stop = optimize_stop_loss(start, end, top_n).head(5)
@@ -178,6 +196,11 @@ def main() -> None:
     optimize_tp.add_argument("--end", default=None)
     optimize_tp.add_argument("--top-n", type=int, default=7)
     optimize_tp.set_defaults(func=_cmd_optimize_take_profit)
+
+    optimize_strategy = sub.add_parser("optimize-strategy", help="Compare 12/18/24 month windows and save best strategy settings")
+    optimize_strategy.add_argument("--end", default=None)
+    optimize_strategy.add_argument("--windows", default="12,18,24")
+    optimize_strategy.set_defaults(func=_cmd_optimize_strategy)
 
     review = sub.add_parser("review-strategy", help="Send a weekly strategy optimization review")
     review.add_argument("--start", default="2024-11-01")
