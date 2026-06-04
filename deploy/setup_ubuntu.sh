@@ -13,6 +13,8 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 
 sudo cp deploy/ai-invest.service /etc/systemd/system/ai-invest.service
+sudo cp deploy/ai-invest-daily.service /etc/systemd/system/ai-invest-daily.service
+sudo cp deploy/ai-invest-daily.timer /etc/systemd/system/ai-invest-daily.timer
 sudo cp deploy/nginx-ai-invest.conf /etc/nginx/sites-available/ai-invest
 sudo ln -sf /etc/nginx/sites-available/ai-invest /etc/nginx/sites-enabled/ai-invest
 sudo rm -f /etc/nginx/sites-enabled/default
@@ -20,7 +22,9 @@ sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t
 sudo systemctl daemon-reload
 sudo systemctl enable ai-invest
+sudo systemctl enable ai-invest-daily.timer
 sudo systemctl restart ai-invest
+sudo systemctl restart ai-invest-daily.timer
 sudo systemctl restart nginx
 
 echo "AI Invest web is ready. Open http://52.62.125.23"
