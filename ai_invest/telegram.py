@@ -101,7 +101,15 @@ def format_strategy_monitor(result: dict) -> str:
     optimized = result.get("optimized_strategy") or {}
     new_strategy = result.get("new_strategy") or {}
     active_strategy = new_strategy or optimized
-    status = "재최적화 실행" if result.get("auto_optimized") else "정상 추적" if not result.get("needs_review") else "재검토 필요"
+    status = (
+        "최초 최적화 실행"
+        if result.get("bootstrap_required")
+        else "재최적화 실행"
+        if result.get("auto_optimized")
+        else "정상 추적"
+        if not result.get("needs_review")
+        else "재검토 필요"
+    )
     lines = [
         "AI Invest 전략 점검",
         "",
@@ -132,13 +140,16 @@ def format_strategy_monitor(result: dict) -> str:
                     f"{pct(active_strategy.get('take_profit_trailing_pct', 0.0))}"
                 ),
                 f"백테스트 CAGR: {pct(active_strategy.get('cagr', 0.0))}",
+                f"최근 검증수익: {pct(active_strategy.get('validation_total_return', 0.0))}",
                 f"백테스트 MDD: {pct(active_strategy.get('mdd', 0.0))}",
                 f"Sharpe: {float(active_strategy.get('sharpe', 0.0)):.2f}",
                 f"기대 대비: {ratio_text}",
             ]
         )
 
-    if result.get("auto_optimized"):
+    if result.get("bootstrap_required"):
+        lines.extend(["", "저장된 최적화 전략이 없어 최초 2단계 최적화를 실행하고 새 전략을 저장했습니다."])
+    elif result.get("auto_optimized"):
         lines.extend(["", "성과 미달 조건이 감지되어 새 전략을 저장했습니다. 다음 추천부터 새 기준이 반영됩니다."])
     elif result.get("needs_review"):
         lines.extend(["", "성과가 기대치보다 낮습니다. 자동 재최적화 옵션이 꺼져 있으면 수동 점검이 필요합니다."])
