@@ -42,7 +42,12 @@ def evaluate_strategy_performance(auto_optimize: bool = False) -> dict[str, Any]
     )
 
     review_result: dict[str, Any] = {}
-    if auto_optimize and needs_review:
+    bootstrap_required = bool(auto_optimize and not optimized)
+    if bootstrap_required:
+        _, best = optimize_strategy_two_stage()
+        review_result = best
+        optimized = best or optimized
+    elif auto_optimize and needs_review:
         _, best = optimize_strategy_two_stage()
         review_result = best
 
@@ -54,6 +59,7 @@ def evaluate_strategy_performance(auto_optimize: bool = False) -> dict[str, Any]
         "expected_return_from_backtest_cagr": expected_return,
         "shortfall": shortfall,
         "actual_to_expected_ratio": ratio,
+        "bootstrap_required": bootstrap_required,
         "needs_review": needs_review,
         "optimized_strategy": optimized,
         "auto_optimized": bool(review_result),
