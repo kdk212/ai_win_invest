@@ -37,17 +37,48 @@ def _objective(summary: dict[str, float]) -> float:
     return cagr * drawdown_penalty + 0.15 * sharpe + 0.05 * exposure
 
 
+def _validation_summary(result: pd.DataFrame, days: int = 42) -> dict[str, float]:
+    if result.empty:
+        return {"validation_total_return": 0.0, "validation_cagr": 0.0, "validation_mdd": 0.0, "validation_sharpe": 0.0}
+    window = result.tail(min(days, len(result))).copy()
+    if window.empty:
+        return {"validation_total_return": 0.0, "validation_cagr": 0.0, "validation_mdd": 0.0, "validation_sharpe": 0.0}
+    base_equity = float(window["equity"].iloc[0])
+    if base_equity:
+        window["equity"] = window["equity"].astype(float) / base_equity
+    summary = summarize_backtest(window)
+    return {
+        "validation_total_return": float(summary["total_return"]),
+        "validation_cagr": float(summary["cagr"]),
+        "validation_mdd": float(summary["mdd"]),
+        "validation_sharpe": float(summary["sharpe"]),
+    }
+
+
+def _selection_objective(summary: dict[str, float], validation: dict[str, float]) -> float:
+    train_score = _objective(summary)
+    validation_cagr = float(validation.get("validation_cagr", 0.0))
+    validation_mdd = float(validation.get("validation_mdd", 0.0))
+    validation_sharpe = float(validation.get("validation_sharpe", 0.0))
+    validation_score = validation_cagr * max(0.10, 1.0 + validation_mdd) + 0.10 * validation_sharpe
+    stability_penalty = max(0.0, float(summary.get("cagr", 0.0)) - max(validation_cagr, 0.0)) * 0.15
+    return 0.70 * train_score + 0.30 * validation_score - stability_penalty
+
+
 def _pick_best(report: pd.DataFrame, end: str, phase: str) -> dict[str, Any]:
     if report.empty:
         return {}
     valid = report[report["error"].fillna("") == ""].copy()
     if valid.empty:
         return {}
-    best_row = valid.sort_values(["objective", "sharpe", "cagr", "mdd"], ascending=[False, False, False, False]).iloc[0]
+    best_row = valid.sort_values(
+        ["selection_objective", "validation_sharpe", "objective", "sharpe", "cagr", "mdd"],
+        ascending=[False, False, False, False, False, False],
+    ).iloc[0]
     return {
         "selected_at": pd.Timestamp.now(tz="Asia/Seoul").isoformat(),
         "selection_phase": phase,
-        "selection_rule": "max objective = CAGR drawdown-adjusted + Sharpe/exposure bonus",
+        "selection_rule": "max blended objective = 70% full-period score + 30% recent validation score",
         "window_months": int(best_row["window_months"]),
         "start": str(best_row["start"]),
         "end": end,
@@ -57,10 +88,15 @@ def _pick_best(report: pd.DataFrame, end: str, phase: str) -> dict[str, Any]:
         "take_profit_trigger_pct": float(best_row["take_profit_trigger_pct"]),
         "take_profit_trailing_pct": float(best_row["take_profit_trailing_pct"]),
         "objective": float(best_row["objective"]),
+        "selection_objective": float(best_row["selection_objective"]),
         "cagr": float(best_row["cagr"]),
         "mdd": float(best_row["mdd"]),
         "sharpe": float(best_row["sharpe"]),
         "exposure": float(best_row["exposure"]),
+        "validation_total_return": float(best_row.get("validation_total_return", 0.0)),
+        "validation_cagr": float(best_row.get("validation_cagr", 0.0)),
+        "validation_mdd": float(best_row.get("validation_mdd", 0.0)),
+        "validation_sharpe": float(best_row.get("validation_sharpe", 0.0)),
     }
 
 
@@ -108,6 +144,7 @@ def optimize_strategy_windows(
                                 take_profit_trailing_pct=tp_trailing,
                             )
                             summary = summarize_backtest(result)
+                            validation = _validation_summary(result)
                         except Exception as exc:
                             if verbose:
                                 print(f"  -> failed: {exc}", flush=True)
@@ -125,10 +162,13 @@ def optimize_strategy_windows(
                                 }
                             )
                             continue
+                        objective = _objective(summary)
+                        selection_objective = _selection_objective(summary, validation)
                         if verbose:
                             print(
                                 f"  -> CAGR {summary['cagr']:.2%}, MDD {summary['mdd']:.2%}, "
-                                f"Sharpe {summary['sharpe']:.2f}",
+                                f"Sharpe {summary['sharpe']:.2f}, "
+                                f"validation {validation['validation_total_return']:.2%}",
                                 flush=True,
                             )
                         rows.append(
@@ -143,9 +183,11 @@ def optimize_strategy_windows(
                                 "take_profit_trailing_pct": tp_trailing,
                                 "avg_positions": float(result["active_positions"].mean()),
                                 "rebalance_count": int(holdings["date"].nunique()) if not holdings.empty else 0,
-                                "objective": _objective(summary),
+                                "objective": objective,
+                                "selection_objective": selection_objective,
                                 "error": "",
                                 **summary,
+                                **validation,
                             }
                         )
 
