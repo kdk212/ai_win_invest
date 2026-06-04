@@ -37,3 +37,9 @@ def load_telegram_credentials() -> tuple[str | None, str | None]:
 
     env_values = _read_env_file(ROOT / "telegram.env")
     return token or env_values.get("TELEGRAM_BOT_TOKEN"), chat_id or env_values.get("TELEGRAM_CHAT_ID")
+
+
+def load_web_password() -> str | None:
+    if os.getenv("WEB_PASSWORD"):
+        return os.getenv("WEB_PASSWORD")
+    return _read_env_file(ROOT / "web.env").get("WEB_PASSWORD")
