@@ -1,0 +1,9 @@
+[Unit]
+Description=Run AI Invest Korea daily recommendation snapshot at 20:50 KST
+
+[Timer]
+OnCalendar=*-*-* 11:50:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
