@@ -120,7 +120,7 @@ def _cmd_optimize_take_profit(args: argparse.Namespace) -> None:
 def _cmd_optimize_strategy(args: argparse.Namespace) -> None:
     ensure_dirs()
     windows = [int(value.strip()) for value in args.windows.split(",") if value.strip()]
-    report, best = optimize_strategy_windows(end=args.end, windows=windows)
+    report, best = optimize_strategy_windows(end=args.end, windows=windows, verbose=True)
     if report.empty or not best:
         print("Strategy optimization did not produce a valid candidate.")
         return
