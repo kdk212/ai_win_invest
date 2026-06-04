@@ -44,21 +44,32 @@ def optimize_strategy_windows(
     score_thresholds: list[float] | None = None,
     stop_multipliers: list[float] | None = None,
     take_profit_pairs: list[tuple[float, float]] | None = None,
+    verbose: bool = False,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     end = end or iso_date(date.today())
     windows = windows or [12, 18, 24]
     top_ns = top_ns or [5, 7]
-    score_thresholds = score_thresholds or [2.0, 2.5, 3.0]
-    stop_multipliers = stop_multipliers or [2.0, 2.5, 3.0]
-    take_profit_pairs = take_profit_pairs or [(0.25, 0.08), (0.30, 0.10), (0.35, 0.12)]
+    score_thresholds = score_thresholds or [2.5, 3.0]
+    stop_multipliers = stop_multipliers or [2.5, 3.0]
+    take_profit_pairs = take_profit_pairs or [(0.30, 0.10), (0.35, 0.12)]
 
     rows: list[dict[str, Any]] = []
+    total = len(windows) * len(top_ns) * len(score_thresholds) * len(stop_multipliers) * len(take_profit_pairs)
+    current = 0
     for months in windows:
         start = _window_start(end, months)
         for top_n in top_ns:
             for threshold in score_thresholds:
                 for stop in stop_multipliers:
                     for tp_trigger, tp_trailing in take_profit_pairs:
+                        current += 1
+                        if verbose:
+                            print(
+                                f"[{current}/{total}] window={months}m top={top_n} "
+                                f"raw>={threshold:.2f} stop={stop:.2f} "
+                                f"take={tp_trigger:.0%}/{tp_trailing:.0%}",
+                                flush=True,
+                            )
                         try:
                             result, holdings = run_backtest(
                                 start=start,
@@ -71,6 +82,8 @@ def optimize_strategy_windows(
                             )
                             summary = summarize_backtest(result)
                         except Exception as exc:
+                            if verbose:
+                                print(f"  -> failed: {exc}", flush=True)
                             rows.append(
                                 {
                                     "window_months": months,
@@ -85,6 +98,12 @@ def optimize_strategy_windows(
                                 }
                             )
                             continue
+                        if verbose:
+                            print(
+                                f"  -> CAGR {summary['cagr']:.2%}, MDD {summary['mdd']:.2%}, "
+                                f"Sharpe {summary['sharpe']:.2f}",
+                                flush=True,
+                            )
                         rows.append(
                             {
                                 "window_months": months,
@@ -104,10 +123,13 @@ def optimize_strategy_windows(
                         )
 
     report = pd.DataFrame(rows)
-    best: dict[str, Any] = {}
-    if not report.empty:
+    if report.empty:
+        best: dict[str, Any] = {}
+    else:
         valid = report[report["error"].fillna("") == ""].copy()
-        if not valid.empty:
+        if valid.empty:
+            best = {}
+        else:
             best_row = valid.sort_values(["objective", "sharpe", "cagr", "mdd"], ascending=[False, False, False, False]).iloc[0]
             best = {
                 "selected_at": pd.Timestamp.now(tz="Asia/Seoul").isoformat(),
