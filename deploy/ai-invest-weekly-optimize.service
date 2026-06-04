@@ -1,0 +1,10 @@
+[Unit]
+Description=AI Invest Korea weekly strategy optimization
+After=network.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/ai_win_invest
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/ubuntu/ai_win_invest/.venv/bin/python main.py optimize-strategy --windows 12,18,24
