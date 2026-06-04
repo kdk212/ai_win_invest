@@ -3,6 +3,8 @@ telegram.env
 .env
 *.env
 
+config/optimized_strategy.json
+
 data/
 logs/
 *.log
