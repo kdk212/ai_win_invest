@@ -15,6 +15,7 @@ OPTIMIZED_CONFIG_PATH = ROOT / "config" / "optimized_strategy.json"
 STRATEGY_HISTORY_PATH = DATA_DIR / "performance" / "strategy_history.csv"
 TARGET_CAGR = 1.0
 HIGH_RETURN_CAGR = 6.0
+DEFENSIVE_SCORE_THRESHOLD = 999.0
 
 
 def load_optimized_strategy() -> dict[str, Any]:
@@ -57,27 +58,20 @@ def _objective(summary: dict[str, float]) -> float:
 
 
 def _validation_summary(result: pd.DataFrame, days: int = 42) -> dict[str, float]:
+    empty = {
+        "validation_total_return": 0.0,
+        "validation_cagr": 0.0,
+        "validation_mdd": 0.0,
+        "validation_sharpe": 0.0,
+        "validation_avg_return": 0.0,
+        "validation_worst_return": 0.0,
+        "validation_weak_count": 0.0,
+    }
     if result.empty:
-        return {
-            "validation_total_return": 0.0,
-            "validation_cagr": 0.0,
-            "validation_mdd": 0.0,
-            "validation_sharpe": 0.0,
-            "validation_avg_return": 0.0,
-            "validation_worst_return": 0.0,
-            "validation_weak_count": 0.0,
-        }
+        return empty
     window = result.tail(min(days, len(result))).copy()
     if window.empty:
-        return {
-            "validation_total_return": 0.0,
-            "validation_cagr": 0.0,
-            "validation_mdd": 0.0,
-            "validation_sharpe": 0.0,
-            "validation_avg_return": 0.0,
-            "validation_worst_return": 0.0,
-            "validation_weak_count": 0.0,
-        }
+        return empty
     base_equity = float(window["equity"].iloc[0])
     if base_equity:
         window["equity"] = window["equity"].astype(float) / base_equity
@@ -98,9 +92,7 @@ def _validation_summary(result: pd.DataFrame, days: int = 42) -> dict[str, float
         fold_mdds.append(float(fold_summary["mdd"]))
     validation_avg_return = float(pd.Series(fold_returns).mean()) if fold_returns else 0.0
     validation_worst_return = float(min(fold_returns)) if fold_returns else 0.0
-    validation_weak_count = float(
-        sum(1 for ret, mdd in zip(fold_returns, fold_mdds) if ret < 0 or mdd <= -0.12)
-    )
+    validation_weak_count = float(sum(1 for ret, mdd in zip(fold_returns, fold_mdds) if ret < 0 or mdd <= -0.12))
     return {
         "validation_total_return": float(summary["total_return"]),
         "validation_cagr": float(summary["cagr"]),
@@ -155,48 +147,11 @@ def _validation_grade(validation: dict[str, float]) -> str:
     return "watch"
 
 
-def _pick_best(report: pd.DataFrame, end: str, phase: str) -> dict[str, Any]:
-    if report.empty:
-        return {}
-    valid = report[report["error"].fillna("") == ""].copy()
-    if valid.empty:
-        return {}
-    stable = valid[(valid["validation_grade"] != "weak") & (valid["validation_weak_count"].fillna(0) < 2)].copy()
-    candidate_pool = stable if not stable.empty else valid
-
-    high_return_met = stable[stable["cagr"] >= HIGH_RETURN_CAGR].copy()
-    target_met = candidate_pool[candidate_pool["cagr"] >= TARGET_CAGR].copy()
-    if not high_return_met.empty:
-        valid = high_return_met
-        selection_mode = "high_return_cagr_met_risk_minimized"
-        best_row = valid.sort_values(
-            ["validation_weak_count", "mdd", "validation_mdd", "validation_worst_return", "exposure", "score_threshold", "sharpe", "cagr"],
-            ascending=[True, False, False, False, True, False, False, False],
-        ).iloc[0]
-    elif not target_met.empty:
-        valid = target_met
-        if stable.empty:
-            selection_mode = "target_cagr_met_risk_control_weak_validation"
-            best_row = valid.sort_values(
-                ["validation_weak_count", "mdd", "validation_mdd", "validation_worst_return", "exposure", "score_threshold", "sharpe", "cagr"],
-                ascending=[True, False, False, False, True, False, False, False],
-            ).iloc[0]
-        else:
-            selection_mode = "target_cagr_met_return_optimized"
-            best_row = valid.sort_values(
-                ["selection_objective", "validation_sharpe", "objective", "sharpe", "cagr", "mdd"],
-                ascending=[False, False, False, False, False, False],
-            ).iloc[0]
-    else:
-        selection_mode = "return_seeking_until_target_cagr"
-        best_row = valid.sort_values(
-            ["selection_objective", "validation_sharpe", "objective", "sharpe", "cagr", "mdd"],
-            ascending=[False, False, False, False, False, False],
-        ).iloc[0]
+def _row_to_strategy(best_row: pd.Series, end: str, phase: str, selection_mode: str) -> dict[str, Any]:
     return {
         "selected_at": pd.Timestamp.now(tz="Asia/Seoul").isoformat(),
         "selection_phase": phase,
-        "selection_rule": "seek CAGR >= 100%; if CAGR >= 600% candidates exist, minimize risk first",
+        "selection_rule": "seek CAGR >= 100%; if CAGR >= 600% candidates exist, minimize risk first; avoid weak validation candidates",
         "selection_mode": selection_mode,
         "target_cagr": TARGET_CAGR,
         "high_return_risk_minimize_cagr": HIGH_RETURN_CAGR,
@@ -223,6 +178,63 @@ def _pick_best(report: pd.DataFrame, end: str, phase: str) -> dict[str, Any]:
         "validation_weak_count": float(best_row.get("validation_weak_count", 0.0)),
         "validation_grade": str(best_row.get("validation_grade", "-")),
     }
+
+
+def _defensive_strategy(best_row: pd.Series, end: str, phase: str) -> dict[str, Any]:
+    strategy = _row_to_strategy(best_row, end, phase, "defensive_no_recommendation_weak_validation")
+    strategy.update(
+        {
+            "top_n": 1,
+            "score_threshold": DEFENSIVE_SCORE_THRESHOLD,
+            "cagr": 0.0,
+            "mdd": 0.0,
+            "sharpe": 0.0,
+            "exposure": 0.0,
+            "defensive_reason": "All tested candidates were weak in recent validation, so recommendations are blocked until a stable candidate appears.",
+            "rejected_candidate_cagr": float(best_row.get("cagr", 0.0)),
+            "rejected_candidate_mdd": float(best_row.get("mdd", 0.0)),
+            "rejected_candidate_validation_total_return": float(best_row.get("validation_total_return", 0.0)),
+            "rejected_candidate_validation_weak_count": float(best_row.get("validation_weak_count", 0.0)),
+        }
+    )
+    return strategy
+
+
+def _pick_best(report: pd.DataFrame, end: str, phase: str) -> dict[str, Any]:
+    if report.empty:
+        return {}
+    valid = report[report["error"].fillna("") == ""].copy()
+    if valid.empty:
+        return {}
+
+    stable = valid[(valid["validation_grade"] != "weak") & (valid["validation_weak_count"].fillna(0) < 2)].copy()
+    if stable.empty:
+        safest = valid.sort_values(
+            ["validation_weak_count", "validation_mdd", "mdd", "validation_worst_return", "exposure", "score_threshold"],
+            ascending=[True, False, False, False, True, False],
+        ).iloc[0]
+        return _defensive_strategy(safest, end, phase)
+
+    high_return_met = stable[stable["cagr"] >= HIGH_RETURN_CAGR].copy()
+    target_met = stable[stable["cagr"] >= TARGET_CAGR].copy()
+    if not high_return_met.empty:
+        best_row = high_return_met.sort_values(
+            ["validation_weak_count", "mdd", "validation_mdd", "validation_worst_return", "exposure", "score_threshold", "sharpe", "cagr"],
+            ascending=[True, False, False, False, True, False, False, False],
+        ).iloc[0]
+        return _row_to_strategy(best_row, end, phase, "high_return_cagr_met_risk_minimized")
+    if not target_met.empty:
+        best_row = target_met.sort_values(
+            ["selection_objective", "validation_sharpe", "objective", "sharpe", "cagr", "mdd"],
+            ascending=[False, False, False, False, False, False],
+        ).iloc[0]
+        return _row_to_strategy(best_row, end, phase, "target_cagr_met_return_optimized")
+
+    best_row = stable.sort_values(
+        ["selection_objective", "validation_sharpe", "objective", "sharpe", "cagr", "mdd"],
+        ascending=[False, False, False, False, False, False],
+    ).iloc[0]
+    return _row_to_strategy(best_row, end, phase, "stable_return_seeking_until_target_cagr")
 
 
 def optimize_strategy_windows(
@@ -388,6 +400,14 @@ def optimize_strategy_two_stage(
     coarse_report, coarse_best = optimize_strategy_windows(end=end, windows=windows, verbose=verbose)
     if not coarse_best:
         return coarse_report, {}
+    if coarse_best.get("selection_mode") == "defensive_no_recommendation_weak_validation":
+        safe_to_csv(
+            coarse_report,
+            DATA_DIR / "backtests" / f"strategy_window_coarse_optimization_{coarse_best['end']}.csv",
+            index=False,
+            encoding="utf-8-sig",
+        )
+        return coarse_report, coarse_best
     safe_to_csv(
         coarse_report,
         DATA_DIR / "backtests" / f"strategy_window_coarse_optimization_{coarse_best['end']}.csv",
