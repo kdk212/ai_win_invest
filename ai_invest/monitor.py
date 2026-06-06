@@ -34,11 +34,12 @@ def evaluate_strategy_performance(auto_optimize: bool = False) -> dict[str, Any]
 
     shortfall = actual_return - expected_return
     ratio = actual_return / expected_return if expected_return > 0 else None
+    severe_shortfall = shortfall < -0.08
+    normal_shortfall = shortfall < -0.05 or (ratio is not None and ratio < 0.5)
     needs_review = bool(
         optimized
-        and elapsed_days >= 5
         and expected_return > 0
-        and (shortfall < -0.05 or (ratio is not None and ratio < 0.5))
+        and ((elapsed_days >= 3 and severe_shortfall) or (elapsed_days >= 5 and normal_shortfall))
     )
 
     review_result: dict[str, Any] = {}
@@ -50,6 +51,7 @@ def evaluate_strategy_performance(auto_optimize: bool = False) -> dict[str, Any]
     elif auto_optimize and needs_review:
         _, best = optimize_strategy_two_stage()
         review_result = best
+        optimized = best or optimized
 
     result: dict[str, Any] = {
         "checked_at": pd.Timestamp.now(tz="Asia/Seoul").isoformat(),
