@@ -46,13 +46,10 @@ class Lot:
         return self.sell_date is None
 
     def stop_level(self) -> float:
-        entry_stop = self.buy_price * (1 - self.stop_loss_pct)
-        peak_stop = self.peak_price * (1 - self.stop_loss_pct * 0.85)
-        fixed_stop = self.stop_price or 0.0
-        return max(entry_stop, peak_stop, fixed_stop)
+        return self.stop_price or self.buy_price * (1 - self.stop_loss_pct)
 
     def take_profit_trigger_level(self) -> float:
-        return self.buy_price * (1 + self.take_profit_trigger_pct)
+        return self.take_profit_trigger_price or self.buy_price * (1 + self.take_profit_trigger_pct)
 
 
 def recommendation_files() -> list[Path]:
@@ -175,6 +172,18 @@ def _close_ticker(lots: list[Lot], ticker: str, trading_date: date, sell_price: 
             lot.sell_reason = reason
 
 
+def _apply_latest_risk_settings(lots: list[Lot], latest: Lot) -> None:
+    for lot in lots:
+        if lot.ticker != latest.ticker or not lot.active:
+            continue
+        lot.rec_date = latest.rec_date
+        lot.stop_price = latest.stop_price
+        lot.stop_loss_pct = latest.stop_loss_pct
+        lot.take_profit_trigger_price = latest.take_profit_trigger_price
+        lot.take_profit_trigger_pct = latest.take_profit_trigger_pct
+        lot.take_profit_trailing_pct = latest.take_profit_trailing_pct
+
+
 def _daily_snapshot(lots: list[Lot], prices: dict[str, pd.DataFrame], trading_date: date) -> dict[str, object]:
     contributed = sum(lot.allocation for lot in lots if lot.buy_date <= trading_date)
     realized = sum((lot.sell_price or 0.0) * lot.shares - lot.allocation for lot in lots if lot.sell_date and lot.sell_date <= trading_date)
@@ -277,7 +286,9 @@ def simulate_recommendation_portfolio(start_date: date = DEFAULT_START_DATE) -> 
     daily_rows: list[dict[str, object]] = []
     for trading_date in _trade_dates(prices, start_date):
         while pending and pending[0].buy_date == trading_date:
-            active.append(pending.pop(0))
+            new_lot = pending.pop(0)
+            active.append(new_lot)
+            _apply_latest_risk_settings(active, new_lot)
         for ticker in sorted({lot.ticker for lot in active if lot.active}):
             price = _price_on(prices.get(ticker), trading_date)
             if price is None:
@@ -293,7 +304,7 @@ def simulate_recommendation_portfolio(start_date: date = DEFAULT_START_DATE) -> 
                 continue
             trailing_hits = []
             for lot in ticker_lots:
-                if lot.peak_price / lot.buy_price - 1 >= lot.take_profit_trigger_pct:
+                if lot.peak_price >= lot.take_profit_trigger_level():
                     trailing = lot.peak_price * (1 - lot.take_profit_trailing_pct)
                     if low <= trailing:
                         trailing_hits.append(trailing)
