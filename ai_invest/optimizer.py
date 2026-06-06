@@ -108,6 +108,8 @@ def _selection_objective(summary: dict[str, float], validation: dict[str, float]
     validation_fold_loss_penalty = max(0.0, -validation_avg_return) * 3.0 + max(0.0, -validation_worst_return) * 2.0
     validation_weak_penalty = validation_weak_count * 0.08
     validation_drawdown_penalty = max(0.0, abs(validation_mdd) - 0.08) * 2.0
+    exposure = float(summary.get("exposure", 0.0))
+    low_selectivity_penalty = max(0.0, exposure - 0.82) * 0.10
     return (
         0.70 * train_score
         + 0.30 * validation_score
@@ -116,6 +118,7 @@ def _selection_objective(summary: dict[str, float], validation: dict[str, float]
         - validation_fold_loss_penalty
         - validation_weak_penalty
         - validation_drawdown_penalty
+        - low_selectivity_penalty
     )
 
 
@@ -146,7 +149,7 @@ def _pick_best(report: pd.DataFrame, end: str, phase: str) -> dict[str, Any]:
     return {
         "selected_at": pd.Timestamp.now(tz="Asia/Seoul").isoformat(),
         "selection_phase": phase,
-        "selection_rule": "max blended objective = 70% full-period score + 30% recent validation score with loss/drawdown penalties",
+        "selection_rule": "max blended objective = 70% full-period score + 30% recent validation score with loss/drawdown penalties and selectivity penalty",
         "window_months": int(best_row["window_months"]),
         "start": str(best_row["start"]),
         "end": end,
@@ -183,8 +186,8 @@ def optimize_strategy_windows(
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     end = end or iso_date(date.today())
     windows = windows or [12, 18, 24]
-    top_ns = top_ns or [5, 7]
-    score_thresholds = score_thresholds or [2.5, 3.0]
+    top_ns = top_ns or [3, 5, 7]
+    score_thresholds = score_thresholds or [3.0, 3.5, 4.0, 4.25]
     stop_multipliers = stop_multipliers or [2.5, 3.0]
     take_profit_pairs = take_profit_pairs or [(0.30, 0.10), (0.35, 0.12)]
 
@@ -308,7 +311,7 @@ def refine_optimized_strategy(
         end=end,
         windows=[window],
         top_ns=[top_n],
-        score_thresholds=_bounded_values(threshold, [-0.25, 0.0, 0.25], 1.5, 4.0),
+        score_thresholds=_bounded_values(threshold, [-0.50, -0.25, 0.0, 0.25, 0.50], 2.5, 4.75),
         stop_multipliers=_bounded_values(stop, [-0.25, 0.0, 0.25], 1.5, 3.5),
         take_profit_pairs=sorted(set(refined_take_profit_pairs)),
         verbose=verbose,
