@@ -5,6 +5,7 @@ APP_DIR="/home/ubuntu/ai_win_invest"
 START_DATE="${START_DATE:-2026-06-01}"
 END_DATE="${END_DATE:-$(date +%F)}"
 WINDOWS="${WINDOWS:-12,18,24}"
+WITH_NEWS="${WITH_NEWS:-0}"
 LOG_DIR="$APP_DIR/logs"
 LOG_FILE="$LOG_DIR/rebuild_from_2026-06-01.log"
 
@@ -15,6 +16,7 @@ mkdir -p "$LOG_DIR"
   echo "Start date: $START_DATE"
   echo "End date: $END_DATE"
   echo "Windows: $WINDOWS"
+  echo "With news: $WITH_NEWS"
   echo ""
 
   .venv/bin/python -m py_compile \
@@ -27,7 +29,11 @@ mkdir -p "$LOG_DIR"
   .venv/bin/python main.py optimize-strategy --windows "$WINDOWS"
 
   find data/recommendations -name "recommendations_2026-06-*.csv" -delete
-  .venv/bin/python main.py backfill-recommendations --start "$START_DATE" --end "$END_DATE" --with-news
+  if [ "$WITH_NEWS" = "1" ]; then
+    .venv/bin/python main.py backfill-recommendations --start "$START_DATE" --end "$END_DATE" --with-news
+  else
+    .venv/bin/python main.py backfill-recommendations --start "$START_DATE" --end "$END_DATE"
+  fi
   .venv/bin/python main.py monitor-strategy --auto-optimize
   .venv/bin/python main.py strategy-status > "$LOG_DIR/strategy_status.txt"
 
