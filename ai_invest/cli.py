@@ -6,7 +6,8 @@ from datetime import date, timedelta
 
 from .backtest import optimize_score_threshold, optimize_stop_loss, optimize_take_profit, run_backtest, summarize_backtest
 from .config import DATA_DIR, ensure_dirs
-from .monitor import MONITOR_PATH, evaluate_strategy_performance
+from .monitor import evaluate_strategy_performance
+from .monitor import MONITOR_PATH
 from .news import enrich_recommendations_with_news
 from .optimizer import load_optimized_strategy, optimize_strategy_two_stage
 from .strategy import build_recommendations
@@ -136,6 +137,13 @@ def _cmd_optimize_strategy(args: argparse.Namespace) -> None:
         f"trailing {pct(best['take_profit_trailing_pct'])}"
     )
     print(f"CAGR: {pct(best['cagr'])}, MDD: {pct(best['mdd'])}, Sharpe: {best['sharpe']:.2f}")
+    print(
+        "Recent validation: "
+        f"latest {pct(best.get('validation_total_return', 0.0))}, "
+        f"avg {pct(best.get('validation_avg_return', 0.0))}, "
+        f"worst {pct(best.get('validation_worst_return', 0.0))}, "
+        f"weak folds {int(float(best.get('validation_weak_count', 0.0)))}"
+    )
     print("Saved: config/optimized_strategy.json")
 
 
@@ -176,6 +184,9 @@ def _cmd_strategy_status(_: argparse.Namespace) -> None:
     print(f"Backtest MDD: {pct(strategy.get('mdd', 0.0))}")
     print(f"Sharpe: {float(strategy.get('sharpe', 0.0)):.2f}")
     print(f"Recent validation return: {pct(strategy.get('validation_total_return', 0.0))}")
+    print(f"Recent validation avg return: {pct(strategy.get('validation_avg_return', 0.0))}")
+    print(f"Recent validation worst return: {pct(strategy.get('validation_worst_return', 0.0))}")
+    print(f"Recent validation weak folds: {int(float(strategy.get('validation_weak_count', 0.0)))}")
     print(f"Recent validation MDD: {pct(strategy.get('validation_mdd', 0.0))}")
     print(f"Recent validation Sharpe: {float(strategy.get('validation_sharpe', 0.0)):.2f}")
     if MONITOR_PATH.exists():
