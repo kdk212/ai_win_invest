@@ -6,6 +6,7 @@ START_DATE="${START_DATE:-2026-06-01}"
 END_DATE="${END_DATE:-$(date +%F)}"
 WINDOWS="${WINDOWS:-12,18,24}"
 WITH_NEWS="${WITH_NEWS:-0}"
+MONITOR_TIMEOUT_SECONDS="${MONITOR_TIMEOUT_SECONDS:-900}"
 LOG_DIR="$APP_DIR/logs"
 LOG_FILE="$LOG_DIR/rebuild_from_2026-06-01.log"
 
@@ -13,6 +14,7 @@ cd "$APP_DIR"
 mkdir -p "$LOG_DIR" data/recommendations data/backtests data/performance
 : > "$LOG_FILE"
 exec > >(tee -a "$LOG_FILE") 2>&1
+export PYTHONUNBUFFERED=1
 
 step() {
   echo ""
@@ -24,6 +26,7 @@ echo "Start date: $START_DATE"
 echo "End date: $END_DATE"
 echo "Windows: $WINDOWS"
 echo "With news: $WITH_NEWS"
+echo "Monitor timeout seconds: $MONITOR_TIMEOUT_SECONDS"
 
 step "1/6 Checking Python files"
 .venv/bin/python -m py_compile \
@@ -45,7 +48,11 @@ else
 fi
 
 step "4/6 Monitoring strategy and auto-optimizing if needed"
-.venv/bin/python main.py monitor-strategy --auto-optimize
+echo "Auto-monitor can run another optimization pass. It will continue without blocking after ${MONITOR_TIMEOUT_SECONDS}s."
+if ! timeout "$MONITOR_TIMEOUT_SECONDS" .venv/bin/python main.py monitor-strategy --auto-optimize; then
+  echo "Monitor auto-optimization timed out or failed. Saving monitor status without another optimization pass."
+  .venv/bin/python main.py monitor-strategy || true
+fi
 
 step "5/6 Saving strategy status"
 .venv/bin/python main.py strategy-status | tee "$LOG_DIR/strategy_status.txt"
