@@ -21,14 +21,15 @@ def _cmd_daily(args: argparse.Namespace) -> None:
     ensure_dirs()
     as_of = date.fromisoformat(args.as_of_date) if args.as_of_date else None
     recs = build_recommendations(as_of=as_of, top_n=args.top_n)
-    if recs.empty:
-        print("No recommendation candidates were generated. Check data access or the as-of date.")
-        return
     if args.with_news:
         recs = enrich_recommendations_with_news(recs)
-    out = DATA_DIR / "recommendations" / f"recommendations_{recs['as_of'].iloc[0]}.csv"
+    out_date = str(recs["as_of"].iloc[0]) if not recs.empty and "as_of" in recs else str(recs.attrs.get("as_of") or (as_of or date.today()).isoformat())
+    out = DATA_DIR / "recommendations" / f"recommendations_{out_date}.csv"
     saved = safe_to_csv(recs, out, index=False, encoding="utf-8-sig")
-    message = format_recommendations(recs)
+    if recs.empty:
+        message = f"No recommendation candidates for {out_date}. No stocks passed the optimized raw score threshold."
+    else:
+        message = format_recommendations(recs)
     print(message)
     print(f"\nSaved: {out}" if saved else "\nSave skipped: this execution environment blocked new file writes.")
     if args.send_telegram:
@@ -38,15 +39,15 @@ def _cmd_daily(args: argparse.Namespace) -> None:
 
 def _save_recommendations_for_date(as_of: date, top_n: int | None = None, with_news: bool = False) -> tuple[str, int]:
     recs = build_recommendations(as_of=as_of, top_n=top_n)
-    if recs.empty:
-        return as_of.isoformat(), 0
+    out_date = str(recs["as_of"].iloc[0]) if not recs.empty and "as_of" in recs else str(recs.attrs.get("as_of") or as_of.isoformat())
     recs = recs.copy()
-    recs["as_of"] = as_of.isoformat()
+    if not recs.empty:
+        recs["as_of"] = out_date
     if with_news:
         recs = enrich_recommendations_with_news(recs)
-    out = DATA_DIR / "recommendations" / f"recommendations_{as_of.isoformat()}.csv"
+    out = DATA_DIR / "recommendations" / f"recommendations_{out_date}.csv"
     safe_to_csv(recs, out, index=False, encoding="utf-8-sig")
-    return as_of.isoformat(), len(recs)
+    return out_date, len(recs)
 
 
 def _cmd_backfill_recommendations(args: argparse.Namespace) -> None:
@@ -57,11 +58,11 @@ def _cmd_backfill_recommendations(args: argparse.Namespace) -> None:
     saved: dict[str, int] = {}
     while current <= end:
         as_of, count = _save_recommendations_for_date(current, top_n=args.top_n, with_news=args.with_news)
+        saved[as_of] = count
         if count:
-            saved[as_of] = count
             print(f"Saved {as_of}: {count} recommendations")
         else:
-            print(f"Skipped {current.isoformat()}: no recommendation candidates")
+            print(f"Saved {as_of}: no recommendation candidates met the optimized score threshold")
         current += timedelta(days=1)
     print(f"Backfill complete: {len(saved)} recommendation date files")
 
