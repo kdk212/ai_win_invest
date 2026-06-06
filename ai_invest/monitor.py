@@ -39,7 +39,7 @@ def evaluate_strategy_performance(auto_optimize: bool = False) -> dict[str, Any]
     needs_review = bool(
         optimized
         and expected_return > 0
-        and ((elapsed_days >= 3 and severe_shortfall) or (elapsed_days >= 5 and normal_shortfall))
+        and ((elapsed_days >= 1 and severe_shortfall) or (elapsed_days >= 3 and normal_shortfall))
     )
 
     review_result: dict[str, Any] = {}
