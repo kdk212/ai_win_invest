@@ -183,6 +183,10 @@ def _render_strategy_control() -> str:
             f"{pct(optimized.get('take_profit_trigger_pct', 0.0))} / {pct(optimized.get('take_profit_trailing_pct', 0.0))}",
         )
         + _strategy_value("백테스트 CAGR", pct(optimized.get("cagr", 0.0)))
+        + _strategy_value("최근 검증수익", pct(optimized.get("validation_total_return", 0.0)))
+        + _strategy_value("검증 평균수익", pct(optimized.get("validation_avg_return", 0.0)))
+        + _strategy_value("검증 최악수익", pct(optimized.get("validation_worst_return", 0.0)), _pnl_class(optimized.get("validation_worst_return", 0.0)))
+        + _strategy_value("약한 검증구간", f"{int(float(optimized.get('validation_weak_count', 0.0)))}개")
         + _strategy_value("실전 수익률", pct(monitor.get("actual_total_return", 0.0)), _pnl_class(monitor.get("actual_total_return", 0.0)))
         + _strategy_value("기대 수익률", pct(monitor.get("expected_return_from_backtest_cagr", 0.0)))
         + _strategy_value("기대 대비", ratio_text, _pnl_class((ratio or 0) - 1))
