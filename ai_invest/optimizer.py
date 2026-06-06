@@ -170,7 +170,6 @@ def _pick_best(report: pd.DataFrame, end: str, phase: str) -> dict[str, Any]:
             ["selection_objective", "validation_sharpe", "objective", "sharpe", "cagr", "mdd"],
             ascending=[False, False, False, False, False, False],
         ).iloc[0]
-
     return {
         "selected_at": pd.Timestamp.now(tz="Asia/Seoul").isoformat(),
         "selection_phase": phase,
@@ -214,8 +213,8 @@ def optimize_strategy_windows(
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     end = end or iso_date(date.today())
     windows = windows or [12, 18, 24]
-    top_ns = top_ns or [3, 5, 7]
-    score_thresholds = score_thresholds or [3.0, 3.5, 4.0, 4.25]
+    top_ns = top_ns or [1, 2, 3, 5, 7]
+    score_thresholds = score_thresholds or [3.0, 3.5, 4.0, 4.25, 4.5]
     stop_multipliers = stop_multipliers or [2.5, 3.0]
     take_profit_pairs = take_profit_pairs or [(0.30, 0.10), (0.35, 0.12)]
 
@@ -313,6 +312,11 @@ def _bounded_values(center: float, offsets: list[float], low: float, high: float
     return sorted(values)
 
 
+def _bounded_int_values(center: int, offsets: list[int], low: int, high: int) -> list[int]:
+    values = {min(max(center + offset, low), high) for offset in offsets}
+    return sorted(values)
+
+
 def refine_optimized_strategy(
     coarse_best: dict[str, Any],
     end: str | None = None,
@@ -339,7 +343,7 @@ def refine_optimized_strategy(
     report, refined_best = optimize_strategy_windows(
         end=end,
         windows=[window],
-        top_ns=[top_n],
+        top_ns=_bounded_int_values(top_n, [-1, 0, 1], 1, 7),
         score_thresholds=_bounded_values(threshold, [-0.25, 0.0, 0.25, 0.50], 3.0, 4.75),
         stop_multipliers=_bounded_values(stop, [-0.25, 0.0, 0.25], 1.5, 3.5),
         take_profit_pairs=sorted(set(refined_take_profit_pairs)),
