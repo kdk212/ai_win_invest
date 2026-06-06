@@ -13,6 +13,7 @@ from .utils import iso_date, safe_to_csv
 
 OPTIMIZED_CONFIG_PATH = ROOT / "config" / "optimized_strategy.json"
 TARGET_CAGR = 1.0
+HIGH_RETURN_CAGR = 6.0
 
 
 def load_optimized_strategy() -> dict[str, Any]:
@@ -147,13 +148,21 @@ def _pick_best(report: pd.DataFrame, end: str, phase: str) -> dict[str, Any]:
     if not stable.empty:
         valid = stable
 
+    high_return_met = valid[valid["cagr"] >= HIGH_RETURN_CAGR].copy()
     target_met = valid[valid["cagr"] >= TARGET_CAGR].copy()
-    if not target_met.empty:
-        valid = target_met
-        selection_mode = "target_cagr_met_risk_minimized"
+    if not high_return_met.empty:
+        valid = high_return_met
+        selection_mode = "high_return_cagr_met_risk_minimized"
         best_row = valid.sort_values(
             ["validation_weak_count", "mdd", "validation_mdd", "validation_worst_return", "exposure", "score_threshold", "sharpe", "cagr"],
             ascending=[True, False, False, False, True, False, False, False],
+        ).iloc[0]
+    elif not target_met.empty:
+        valid = target_met
+        selection_mode = "target_cagr_met_return_optimized"
+        best_row = valid.sort_values(
+            ["selection_objective", "validation_sharpe", "objective", "sharpe", "cagr", "mdd"],
+            ascending=[False, False, False, False, False, False],
         ).iloc[0]
     else:
         selection_mode = "return_seeking_until_target_cagr"
@@ -165,9 +174,10 @@ def _pick_best(report: pd.DataFrame, end: str, phase: str) -> dict[str, Any]:
     return {
         "selected_at": pd.Timestamp.now(tz="Asia/Seoul").isoformat(),
         "selection_phase": phase,
-        "selection_rule": "if CAGR >= 100%, minimize risk first; otherwise seek return until target CAGR",
+        "selection_rule": "seek CAGR >= 100%; if CAGR >= 600% candidates exist, minimize risk first",
         "selection_mode": selection_mode,
         "target_cagr": TARGET_CAGR,
+        "high_return_risk_minimize_cagr": HIGH_RETURN_CAGR,
         "window_months": int(best_row["window_months"]),
         "start": str(best_row["start"]),
         "end": end,
