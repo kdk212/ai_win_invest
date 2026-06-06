@@ -11,35 +11,46 @@ LOG_FILE="$LOG_DIR/rebuild_from_2026-06-01.log"
 
 cd "$APP_DIR"
 mkdir -p "$LOG_DIR" data/recommendations data/backtests data/performance
-{
-  echo "Rebuild started: $(date -Iseconds)"
-  echo "Start date: $START_DATE"
-  echo "End date: $END_DATE"
-  echo "Windows: $WINDOWS"
-  echo "With news: $WITH_NEWS"
+: > "$LOG_FILE"
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+step() {
   echo ""
+  echo "[$(date -Iseconds)] $1"
+}
 
-  .venv/bin/python -m py_compile \
-    ai_invest/strategy.py \
-    ai_invest/optimizer.py \
-    ai_invest/monitor.py \
-    ai_invest/virtual_portfolio.py \
-    ai_invest/cli.py
+step "Rebuild started"
+echo "Start date: $START_DATE"
+echo "End date: $END_DATE"
+echo "Windows: $WINDOWS"
+echo "With news: $WITH_NEWS"
 
-  .venv/bin/python main.py optimize-strategy --windows "$WINDOWS"
+step "1/6 Checking Python files"
+.venv/bin/python -m py_compile \
+  ai_invest/strategy.py \
+  ai_invest/optimizer.py \
+  ai_invest/monitor.py \
+  ai_invest/virtual_portfolio.py \
+  ai_invest/cli.py
 
-  find data/recommendations -name "recommendations_2026-06-*.csv" -delete
-  if [ "$WITH_NEWS" = "1" ]; then
-    .venv/bin/python main.py backfill-recommendations --start "$START_DATE" --end "$END_DATE" --with-news
-  else
-    .venv/bin/python main.py backfill-recommendations --start "$START_DATE" --end "$END_DATE"
-  fi
-  .venv/bin/python main.py monitor-strategy --auto-optimize
-  .venv/bin/python main.py strategy-status > "$LOG_DIR/strategy_status.txt"
+step "2/6 Optimizing strategy by 12/18/24 month windows"
+.venv/bin/python main.py optimize-strategy --windows "$WINDOWS"
 
-  sudo systemctl restart ai-invest
-  echo ""
-  echo "Rebuild finished: $(date -Iseconds)"
-} > "$LOG_FILE" 2>&1
+step "3/6 Rebuilding recommendations from $START_DATE to $END_DATE"
+find data/recommendations -name "recommendations_2026-06-*.csv" -delete
+if [ "$WITH_NEWS" = "1" ]; then
+  .venv/bin/python main.py backfill-recommendations --start "$START_DATE" --end "$END_DATE" --with-news
+else
+  .venv/bin/python main.py backfill-recommendations --start "$START_DATE" --end "$END_DATE"
+fi
 
-cat "$LOG_DIR/strategy_status.txt"
+step "4/6 Monitoring strategy and auto-optimizing if needed"
+.venv/bin/python main.py monitor-strategy --auto-optimize
+
+step "5/6 Saving strategy status"
+.venv/bin/python main.py strategy-status | tee "$LOG_DIR/strategy_status.txt"
+
+step "6/6 Restarting web service"
+sudo systemctl restart ai-invest
+
+step "Rebuild finished"
