@@ -12,6 +12,7 @@ from .utils import iso_date, safe_to_csv
 
 
 OPTIMIZED_CONFIG_PATH = ROOT / "config" / "optimized_strategy.json"
+STRATEGY_HISTORY_PATH = DATA_DIR / "performance" / "strategy_history.csv"
 TARGET_CAGR = 1.0
 HIGH_RETURN_CAGR = 6.0
 
@@ -23,6 +24,22 @@ def load_optimized_strategy() -> dict[str, Any]:
         return json.loads(OPTIMIZED_CONFIG_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
+
+
+def save_optimized_strategy(strategy: dict[str, Any]) -> None:
+    OPTIMIZED_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    OPTIMIZED_CONFIG_PATH.write_text(json.dumps(strategy, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    STRATEGY_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    history_row = {key: value for key, value in strategy.items() if key != "coarse_strategy"}
+    history = pd.DataFrame([history_row])
+    if STRATEGY_HISTORY_PATH.exists():
+        try:
+            previous = pd.read_csv(STRATEGY_HISTORY_PATH)
+            history = pd.concat([previous, history], ignore_index=True)
+        except Exception:
+            pass
+    safe_to_csv(history, STRATEGY_HISTORY_PATH, index=False, encoding="utf-8-sig")
 
 
 def _window_start(end: str, months: int) -> str:
@@ -302,8 +319,7 @@ def optimize_strategy_windows(
     out = DATA_DIR / "backtests" / f"strategy_window_optimization_{end}.csv"
     safe_to_csv(report, out, index=False, encoding="utf-8-sig")
     if best:
-        OPTIMIZED_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        OPTIMIZED_CONFIG_PATH.write_text(json.dumps(best, ensure_ascii=False, indent=2), encoding="utf-8")
+        save_optimized_strategy(best)
     return report, best
 
 
@@ -352,8 +368,7 @@ def refine_optimized_strategy(
     if refined_best:
         refined_best["selection_phase"] = "refined"
         refined_best["coarse_strategy"] = coarse_best
-        OPTIMIZED_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        OPTIMIZED_CONFIG_PATH.write_text(json.dumps(refined_best, ensure_ascii=False, indent=2), encoding="utf-8")
+        save_optimized_strategy(refined_best)
     out = DATA_DIR / "backtests" / f"strategy_window_refinement_{end}.csv"
     safe_to_csv(report, out, index=False, encoding="utf-8-sig")
     return report, refined_best
