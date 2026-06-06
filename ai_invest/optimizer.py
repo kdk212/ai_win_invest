@@ -162,11 +162,10 @@ def _pick_best(report: pd.DataFrame, end: str, phase: str) -> dict[str, Any]:
     if valid.empty:
         return {}
     stable = valid[(valid["validation_grade"] != "weak") & (valid["validation_weak_count"].fillna(0) < 2)].copy()
-    if not stable.empty:
-        valid = stable
+    candidate_pool = stable if not stable.empty else valid
 
-    high_return_met = valid[valid["cagr"] >= HIGH_RETURN_CAGR].copy()
-    target_met = valid[valid["cagr"] >= TARGET_CAGR].copy()
+    high_return_met = stable[stable["cagr"] >= HIGH_RETURN_CAGR].copy()
+    target_met = candidate_pool[candidate_pool["cagr"] >= TARGET_CAGR].copy()
     if not high_return_met.empty:
         valid = high_return_met
         selection_mode = "high_return_cagr_met_risk_minimized"
@@ -176,11 +175,18 @@ def _pick_best(report: pd.DataFrame, end: str, phase: str) -> dict[str, Any]:
         ).iloc[0]
     elif not target_met.empty:
         valid = target_met
-        selection_mode = "target_cagr_met_return_optimized"
-        best_row = valid.sort_values(
-            ["selection_objective", "validation_sharpe", "objective", "sharpe", "cagr", "mdd"],
-            ascending=[False, False, False, False, False, False],
-        ).iloc[0]
+        if stable.empty:
+            selection_mode = "target_cagr_met_risk_control_weak_validation"
+            best_row = valid.sort_values(
+                ["validation_weak_count", "mdd", "validation_mdd", "validation_worst_return", "exposure", "score_threshold", "sharpe", "cagr"],
+                ascending=[True, False, False, False, True, False, False, False],
+            ).iloc[0]
+        else:
+            selection_mode = "target_cagr_met_return_optimized"
+            best_row = valid.sort_values(
+                ["selection_objective", "validation_sharpe", "objective", "sharpe", "cagr", "mdd"],
+                ascending=[False, False, False, False, False, False],
+            ).iloc[0]
     else:
         selection_mode = "return_seeking_until_target_cagr"
         best_row = valid.sort_values(
