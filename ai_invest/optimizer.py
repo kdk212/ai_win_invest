@@ -106,8 +106,8 @@ def _selection_objective(summary: dict[str, float], validation: dict[str, float]
     stability_penalty = max(0.0, float(summary.get("cagr", 0.0)) - max(validation_cagr, 0.0)) * 0.15
     validation_loss_penalty = max(0.0, -validation_total_return) * 4.0
     validation_fold_loss_penalty = max(0.0, -validation_avg_return) * 3.0 + max(0.0, -validation_worst_return) * 2.0
-    validation_weak_penalty = validation_weak_count * 0.08
-    validation_drawdown_penalty = max(0.0, abs(validation_mdd) - 0.08) * 2.0
+    validation_weak_penalty = validation_weak_count * 0.40
+    validation_drawdown_penalty = max(0.0, abs(validation_mdd) - 0.08) * 3.5
     exposure = float(summary.get("exposure", 0.0))
     low_selectivity_penalty = max(0.0, exposure - 0.82) * 0.10
     return (
@@ -129,7 +129,7 @@ def _validation_grade(validation: dict[str, float]) -> str:
     validation_weak_count = float(validation.get("validation_weak_count", 0.0))
     validation_mdd = float(validation.get("validation_mdd", 0.0))
     validation_sharpe = float(validation.get("validation_sharpe", 0.0))
-    if validation_total_return >= 0 and validation_avg_return >= 0 and validation_worst_return >= -0.03 and validation_mdd > -0.08 and validation_sharpe >= 0:
+    if validation_total_return >= 0 and validation_avg_return >= 0 and validation_worst_return >= -0.03 and validation_mdd > -0.08 and validation_sharpe >= 0 and validation_weak_count == 0:
         return "pass"
     if validation_total_return < 0 or validation_avg_return < 0 or validation_worst_return < -0.08 or validation_mdd <= -0.12 or validation_weak_count >= 2:
         return "weak"
@@ -142,6 +142,9 @@ def _pick_best(report: pd.DataFrame, end: str, phase: str) -> dict[str, Any]:
     valid = report[report["error"].fillna("") == ""].copy()
     if valid.empty:
         return {}
+    stable = valid[(valid["validation_grade"] != "weak") & (valid["validation_weak_count"].fillna(0) < 2)].copy()
+    if not stable.empty:
+        valid = stable
     best_row = valid.sort_values(
         ["selection_objective", "validation_sharpe", "objective", "sharpe", "cagr", "mdd"],
         ascending=[False, False, False, False, False, False],
@@ -149,7 +152,7 @@ def _pick_best(report: pd.DataFrame, end: str, phase: str) -> dict[str, Any]:
     return {
         "selected_at": pd.Timestamp.now(tz="Asia/Seoul").isoformat(),
         "selection_phase": phase,
-        "selection_rule": "max blended objective = 70% full-period score + 30% recent validation score with loss/drawdown penalties and selectivity penalty",
+        "selection_rule": "max blended objective after rejecting weak validation folds; raw threshold floor 3.0",
         "window_months": int(best_row["window_months"]),
         "start": str(best_row["start"]),
         "end": end,
@@ -239,6 +242,7 @@ def optimize_strategy_windows(
                             continue
                         objective = _objective(summary)
                         selection_objective = _selection_objective(summary, validation)
+                        selection_objective -= max(0, top_n - 5) * 0.08
                         validation_grade = _validation_grade(validation)
                         if verbose:
                             print(
@@ -311,7 +315,7 @@ def refine_optimized_strategy(
         end=end,
         windows=[window],
         top_ns=[top_n],
-        score_thresholds=_bounded_values(threshold, [-0.50, -0.25, 0.0, 0.25, 0.50], 2.5, 4.75),
+        score_thresholds=_bounded_values(threshold, [-0.25, 0.0, 0.25, 0.50], 3.0, 4.75),
         stop_multipliers=_bounded_values(stop, [-0.25, 0.0, 0.25], 1.5, 3.5),
         take_profit_pairs=sorted(set(refined_take_profit_pairs)),
         verbose=verbose,
