@@ -58,10 +58,11 @@ def _cmd_backfill_recommendations(args: argparse.Namespace) -> None:
     saved: dict[str, int] = {}
     while current <= end:
         as_of, count = _save_recommendations_for_date(current, top_n=args.top_n, with_news=args.with_news)
-        saved[as_of] = count
         if count:
+            saved[as_of] = count
             print(f"Saved {as_of}: {count} recommendations")
         else:
+            saved[as_of] = 0
             print(f"Saved {as_of}: no recommendation candidates met the optimized score threshold")
         current += timedelta(days=1)
     print(f"Backfill complete: {len(saved)} recommendation date files")
@@ -173,6 +174,8 @@ def _cmd_strategy_status(_: argparse.Namespace) -> None:
     print("Optimized strategy status")
     print(f"Selected at: {strategy.get('selected_at', '-')}")
     print(f"Selection phase: {strategy.get('selection_phase', '-')}")
+    print(f"Selection mode: {strategy.get('selection_mode', '-')}")
+    print(f"Selection rule: {strategy.get('selection_rule', '-')}")
     print(f"Window: {strategy.get('window_months', '-')} months ({strategy.get('start', '-')} ~ {strategy.get('end', '-')})")
     print(f"Top N: {strategy.get('top_n', '-')}")
     print(f"Raw score threshold: {float(strategy.get('score_threshold', 0.0)):.2f}")
