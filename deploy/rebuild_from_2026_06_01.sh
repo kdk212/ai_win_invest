@@ -10,7 +10,7 @@ LOG_DIR="$APP_DIR/logs"
 LOG_FILE="$LOG_DIR/rebuild_from_2026-06-01.log"
 
 cd "$APP_DIR"
-mkdir -p "$LOG_DIR"
+mkdir -p "$LOG_DIR" data/recommendations data/backtests data/performance
 {
   echo "Rebuild started: $(date -Iseconds)"
   echo "Start date: $START_DATE"
