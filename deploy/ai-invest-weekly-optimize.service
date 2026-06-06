@@ -7,4 +7,5 @@ Type=oneshot
 User=ubuntu
 WorkingDirectory=/home/ubuntu/ai_win_invest
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/home/ubuntu/ai_win_invest/.venv/bin/python main.py optimize-strategy --windows 12,18,24
+ExecStart=/bin/bash -lc 'mkdir -p logs && echo "Strategy optimization started: $(date -Iseconds)" > logs/strategy_status.txt && .venv/bin/python main.py optimize-strategy --windows 12,18,24 >> logs/strategy_optimize.log 2>&1 && .venv/bin/python main.py monitor-strategy --auto-optimize >> logs/strategy_optimize.log 2>&1 && .venv/bin/python main.py strategy-status > logs/strategy_status.txt && echo "Strategy optimization finished: $(date -Iseconds)" >> logs/strategy_status.txt'
+ExecStartPost=/bin/systemctl restart ai-invest.service
