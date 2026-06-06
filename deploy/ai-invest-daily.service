@@ -7,5 +7,7 @@ Type=oneshot
 User=ubuntu
 WorkingDirectory=/home/ubuntu/ai_win_invest
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/home/ubuntu/ai_win_invest/.venv/bin/python main.py daily --with-news --send-telegram
+ExecStartPre=/bin/bash -lc 'mkdir -p logs && echo "Daily AI Invest run started: $(date -Iseconds)" > logs/daily_status.txt'
 ExecStart=/home/ubuntu/ai_win_invest/.venv/bin/python main.py monitor-strategy --auto-optimize --send-telegram
+ExecStart=/home/ubuntu/ai_win_invest/.venv/bin/python main.py daily --with-news --send-telegram
+ExecStartPost=/bin/bash -lc '/home/ubuntu/ai_win_invest/.venv/bin/python main.py strategy-status > logs/strategy_status.txt && echo "Daily AI Invest run finished: $(date -Iseconds)" >> logs/daily_status.txt'
