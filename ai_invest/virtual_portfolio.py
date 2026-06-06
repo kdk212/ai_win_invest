@@ -23,7 +23,9 @@ class Lot:
     buy_price: float
     allocation: float
     stop_price: float | None
+    stop_loss_pct: float
     take_profit_trigger_price: float | None
+    take_profit_trigger_pct: float
     take_profit_trailing_pct: float
     shares: float = field(init=False)
     peak_price: float = field(init=False)
@@ -34,10 +36,23 @@ class Lot:
     def __post_init__(self) -> None:
         self.shares = self.allocation / self.buy_price if self.buy_price else 0.0
         self.peak_price = self.buy_price
+        if not self.stop_price:
+            self.stop_price = self.buy_price * (1 - self.stop_loss_pct)
+        if not self.take_profit_trigger_price:
+            self.take_profit_trigger_price = self.buy_price * (1 + self.take_profit_trigger_pct)
 
     @property
     def active(self) -> bool:
         return self.sell_date is None
+
+    def stop_level(self) -> float:
+        entry_stop = self.buy_price * (1 - self.stop_loss_pct)
+        peak_stop = self.peak_price * (1 - self.stop_loss_pct * 0.85)
+        fixed_stop = self.stop_price or 0.0
+        return max(entry_stop, peak_stop, fixed_stop)
+
+    def take_profit_trigger_level(self) -> float:
+        return self.buy_price * (1 + self.take_profit_trigger_pct)
 
 
 def recommendation_files() -> list[Path]:
@@ -129,7 +144,9 @@ def _buy_events(recommendations: list[pd.DataFrame], prices: dict[str, pd.DataFr
                     buy_price=buy_price,
                     allocation=allocation,
                     stop_price=_float_or_none(row.get("stop_price")),
+                    stop_loss_pct=_float_or_none(row.get("stop_loss_pct")) or 0.10,
                     take_profit_trigger_price=_float_or_none(row.get("take_profit_trigger_price")),
+                    take_profit_trigger_pct=_float_or_none(row.get("take_profit_trigger_pct")) or 0.35,
                     take_profit_trailing_pct=_float_or_none(row.get("take_profit_trailing_pct")) or 0.10,
                 )
             )
@@ -210,8 +227,8 @@ def _holdings(lots: list[Lot], prices: dict[str, pd.DataFrame]) -> pd.DataFrame:
                 "current_price_date": current_date,
                 "market_value": market_value,
                 "return_pct": (market_value / cost - 1) if market_value is not None and cost else None,
-                "stop_price": max((lot.stop_price or 0.0) for lot in ticker_lots) or None,
-                "take_profit_trigger_price": min((lot.take_profit_trigger_price for lot in ticker_lots if lot.take_profit_trigger_price), default=None),
+                "stop_price": max((lot.stop_level() for lot in ticker_lots), default=None),
+                "take_profit_trigger_price": min((lot.take_profit_trigger_level() for lot in ticker_lots), default=None),
             }
         )
     return pd.DataFrame(rows).sort_values("weight", ascending=False) if rows else pd.DataFrame()
@@ -270,13 +287,13 @@ def simulate_recommendation_portfolio(start_date: date = DEFAULT_START_DATE) -> 
             ticker_lots = [lot for lot in active if lot.ticker == ticker and lot.active]
             for lot in ticker_lots:
                 lot.peak_price = max(lot.peak_price, high)
-            stop_hits = [lot.stop_price for lot in ticker_lots if lot.stop_price and low <= lot.stop_price]
+            stop_hits = [lot.stop_level() for lot in ticker_lots if low <= lot.stop_level()]
             if stop_hits:
                 _close_ticker(active, ticker, trading_date, float(max(stop_hits)), "stop_loss")
                 continue
             trailing_hits = []
             for lot in ticker_lots:
-                if lot.take_profit_trigger_price and lot.peak_price >= lot.take_profit_trigger_price:
+                if lot.peak_price / lot.buy_price - 1 >= lot.take_profit_trigger_pct:
                     trailing = lot.peak_price * (1 - lot.take_profit_trailing_pct)
                     if low <= trailing:
                         trailing_hits.append(trailing)
