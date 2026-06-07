@@ -13,7 +13,7 @@ from .utils import iso_date, safe_to_csv
 
 OPTIMIZED_CONFIG_PATH = ROOT / "config" / "optimized_strategy.json"
 STRATEGY_HISTORY_PATH = DATA_DIR / "performance" / "strategy_history.csv"
-TARGET_CAGR = 1.0
+TARGET_CAGR = 6.0
 HIGH_RETURN_CAGR = 6.0
 DEFENSIVE_SCORE_THRESHOLD = 999.0
 
@@ -151,7 +151,7 @@ def _row_to_strategy(best_row: pd.Series, end: str, phase: str, selection_mode: 
     return {
         "selected_at": pd.Timestamp.now(tz="Asia/Seoul").isoformat(),
         "selection_phase": phase,
-        "selection_rule": "seek CAGR >= 100%; if CAGR >= 600% candidates exist, minimize risk first; avoid weak validation candidates",
+        "selection_rule": "seek CAGR >= 600%; among 600%+ candidates minimize drawdown and validation risk first",
         "selection_mode": selection_mode,
         "target_cagr": TARGET_CAGR,
         "high_return_risk_minimize_cagr": HIGH_RETURN_CAGR,
@@ -181,7 +181,7 @@ def _row_to_strategy(best_row: pd.Series, end: str, phase: str, selection_mode: 
 
 
 def _defensive_strategy(best_row: pd.Series, end: str, phase: str) -> dict[str, Any]:
-    strategy = _row_to_strategy(best_row, end, phase, "defensive_no_recommendation_weak_validation")
+    strategy = _row_to_strategy(best_row, end, phase, "defensive_no_six_hundred_cagr_candidate")
     strategy.update(
         {
             "top_n": 1,
@@ -190,7 +190,7 @@ def _defensive_strategy(best_row: pd.Series, end: str, phase: str) -> dict[str, 
             "mdd": 0.0,
             "sharpe": 0.0,
             "exposure": 0.0,
-            "defensive_reason": "All tested candidates were weak in recent validation, so recommendations are blocked until a stable candidate appears.",
+            "defensive_reason": "No tested candidate reached the 600% CAGR target, so recommendations are blocked until a 600%+ candidate appears.",
             "rejected_candidate_cagr": float(best_row.get("cagr", 0.0)),
             "rejected_candidate_mdd": float(best_row.get("mdd", 0.0)),
             "rejected_candidate_validation_total_return": float(best_row.get("validation_total_return", 0.0)),
@@ -207,34 +207,26 @@ def _pick_best(report: pd.DataFrame, end: str, phase: str) -> dict[str, Any]:
     if valid.empty:
         return {}
 
+    high_return = valid[valid["cagr"] >= HIGH_RETURN_CAGR].copy()
+    if not high_return.empty:
+        stable_high_return = high_return[(high_return["validation_grade"] != "weak") & (high_return["validation_weak_count"].fillna(0) < 2)].copy()
+        candidates = stable_high_return if not stable_high_return.empty else high_return
+        selection_mode = "six_hundred_cagr_risk_minimized" if stable_high_return.empty else "six_hundred_cagr_stable_risk_minimized"
+        best_row = candidates.sort_values(
+            ["mdd", "validation_weak_count", "validation_mdd", "validation_worst_return", "exposure", "score_threshold", "sharpe", "cagr"],
+            ascending=[False, True, False, False, True, False, False, False],
+        ).iloc[0]
+        return _row_to_strategy(best_row, end, phase, selection_mode)
+
     stable = valid[(valid["validation_grade"] != "weak") & (valid["validation_weak_count"].fillna(0) < 2)].copy()
-    if stable.empty:
-        safest = valid.sort_values(
-            ["validation_weak_count", "validation_mdd", "mdd", "validation_worst_return", "exposure", "score_threshold"],
-            ascending=[True, False, False, False, True, False],
-        ).iloc[0]
-        return _defensive_strategy(safest, end, phase)
-
-    high_return_met = stable[stable["cagr"] >= HIGH_RETURN_CAGR].copy()
-    target_met = stable[stable["cagr"] >= TARGET_CAGR].copy()
-    if not high_return_met.empty:
-        best_row = high_return_met.sort_values(
-            ["validation_weak_count", "mdd", "validation_mdd", "validation_worst_return", "exposure", "score_threshold", "sharpe", "cagr"],
-            ascending=[True, False, False, False, True, False, False, False],
-        ).iloc[0]
-        return _row_to_strategy(best_row, end, phase, "high_return_cagr_met_risk_minimized")
-    if not target_met.empty:
-        best_row = target_met.sort_values(
-            ["selection_objective", "validation_sharpe", "objective", "sharpe", "cagr", "mdd"],
-            ascending=[False, False, False, False, False, False],
-        ).iloc[0]
-        return _row_to_strategy(best_row, end, phase, "target_cagr_met_return_optimized")
-
-    best_row = stable.sort_values(
-        ["selection_objective", "validation_sharpe", "objective", "sharpe", "cagr", "mdd"],
-        ascending=[False, False, False, False, False, False],
+    fallback_pool = stable if not stable.empty else valid
+    best_row = fallback_pool.sort_values(
+        ["cagr", "mdd", "validation_weak_count", "validation_mdd", "validation_worst_return", "sharpe"],
+        ascending=[False, False, True, False, False, False],
     ).iloc[0]
-    return _row_to_strategy(best_row, end, phase, "stable_return_seeking_until_target_cagr")
+    if float(best_row.get("cagr", 0.0)) < HIGH_RETURN_CAGR:
+        return _defensive_strategy(best_row, end, phase)
+    return _row_to_strategy(best_row, end, phase, "return_seeking_until_six_hundred_cagr")
 
 
 def optimize_strategy_windows(
@@ -400,7 +392,7 @@ def optimize_strategy_two_stage(
     coarse_report, coarse_best = optimize_strategy_windows(end=end, windows=windows, verbose=verbose)
     if not coarse_best:
         return coarse_report, {}
-    if coarse_best.get("selection_mode") == "defensive_no_recommendation_weak_validation":
+    if coarse_best.get("selection_mode") == "defensive_no_six_hundred_cagr_candidate":
         safe_to_csv(
             coarse_report,
             DATA_DIR / "backtests" / f"strategy_window_coarse_optimization_{coarse_best['end']}.csv",
