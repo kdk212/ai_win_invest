@@ -104,7 +104,7 @@ def _selected_date(recs: pd.DataFrame, requested: str | None) -> str:
 
 
 def _date_tabs(selected: str) -> str:
-    dates = list(reversed(_available_dates()))[:10]
+    dates = list(reversed(_available_dates()))[:20]
     if not dates:
         return "<span class='muted'>저장된 추천일이 아직 없습니다.</span>"
     return "".join(
