@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from .config import DATA_DIR
-from .data import get_ohlcv
+from .data import get_index_returns, get_ohlcv
 from .utils import iso_date
 
 
@@ -263,22 +263,37 @@ def _closed(lots: list[Lot]) -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values("sell_date", ascending=False) if rows else pd.DataFrame()
 
 
+def _benchmark_returns(start_date: date) -> dict[str, float | str]:
+    try:
+        return get_index_returns(start_date)
+    except Exception:
+        return {
+            "kospi_return": 0.0,
+            "kospi_latest_date": "",
+            "kosdaq_return": 0.0,
+            "kosdaq_latest_date": "",
+        }
+
+
 def simulate_recommendation_portfolio(start_date: date = DEFAULT_START_DATE) -> dict[str, pd.DataFrame | str | float]:
+    benchmarks = _benchmark_returns(start_date)
     recommendations = _read_recommendations()
     if not recommendations:
-        return _empty("저장된 추천 파일이 없습니다. daily 작업이 성공해야 가상 포트폴리오가 생성됩니다.")
+        result = _empty("저장된 추천 파일이 없습니다. daily 작업이 성공해야 가상 포트폴리오가 생성됩니다.")
+        result.update(benchmarks)
+        return result
 
     tickers = sorted({str(row["ticker"]).zfill(6) for recs in recommendations for _, row in recs.iterrows()})
     prices = _load_prices(tickers, start_date)
     if not prices:
         result = _empty("추천 파일은 있지만 가격 데이터를 불러오지 못했습니다. KRX/FinanceDataReader 접속 상태를 확인해야 합니다.")
-        result.update({"recommendation_days": float(len(recommendations)), "recommendation_tickers": float(len(tickers))})
+        result.update({"recommendation_days": float(len(recommendations)), "recommendation_tickers": float(len(tickers)), **benchmarks})
         return result
 
     lots = _buy_events(recommendations, prices, start_date)
     if not lots:
         result = _empty("추천 파일과 가격 데이터는 있으나 2026-06-01 이후 시초가 매수로 전환된 종목이 없습니다.")
-        result.update({"recommendation_days": float(len(recommendations)), "recommendation_tickers": float(len(tickers)), "priced_tickers": float(len(prices))})
+        result.update({"recommendation_days": float(len(recommendations)), "recommendation_tickers": float(len(tickers)), "priced_tickers": float(len(prices)), **benchmarks})
         return result
 
     pending = list(lots)
@@ -329,6 +344,7 @@ def simulate_recommendation_portfolio(start_date: date = DEFAULT_START_DATE) -> 
         "recommendation_tickers": float(len(tickers)),
         "priced_tickers": float(len(prices)),
         "buy_events": float(len(lots)),
+        **benchmarks,
     }
 
 
@@ -346,4 +362,8 @@ def _empty(message: str) -> dict[str, pd.DataFrame | str | float]:
         "recommendation_tickers": 0.0,
         "priced_tickers": 0.0,
         "buy_events": 0.0,
+        "kospi_return": 0.0,
+        "kospi_latest_date": "",
+        "kosdaq_return": 0.0,
+        "kosdaq_latest_date": "",
     }
