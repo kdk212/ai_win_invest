@@ -209,3 +209,45 @@ def get_macro_proxy_prices(symbols: dict[str, str], period: str = "1y") -> pd.Da
     close.index = pd.to_datetime(close.index)
     safe_to_csv(close, cache_path, encoding="utf-8-sig")
     return close
+
+
+def get_index_ohlcv(index_code: str, start: str, end: str, cache: bool = True) -> pd.DataFrame:
+    cache_path = DATA_DIR / "cache" / f"index_ohlcv_{index_code}_{start}_{end}.csv"
+    if cache and cache_path.exists():
+        return pd.read_csv(cache_path, index_col=0, parse_dates=True)
+
+    try:
+        df = stock.get_index_ohlcv_by_date(ymd(start), ymd(end), index_code)
+    except Exception:
+        df = pd.DataFrame()
+    if df.empty:
+        return df
+
+    out = _normalize_ohlcv(df)
+    if cache:
+        safe_to_csv(out, cache_path, encoding="utf-8-sig")
+    return out
+
+
+def get_index_returns(start_date: date, end_date: date | None = None) -> dict[str, float | str]:
+    end_date = end_date or date.today()
+    start = (start_date - timedelta(days=7)).isoformat()
+    end = end_date.isoformat()
+    indexes = {"kospi": "1001", "kosdaq": "2001"}
+    result: dict[str, float | str] = {}
+    for key, code in indexes.items():
+        frame = get_index_ohlcv(code, start, end)
+        if frame.empty or "close" not in frame:
+            result[f"{key}_return"] = 0.0
+            result[f"{key}_latest_date"] = ""
+            continue
+        frame = frame[frame.index.date >= start_date].dropna(subset=["close"])
+        if frame.empty:
+            result[f"{key}_return"] = 0.0
+            result[f"{key}_latest_date"] = ""
+            continue
+        first_close = float(frame.iloc[0]["close"])
+        latest_close = float(frame.iloc[-1]["close"])
+        result[f"{key}_return"] = latest_close / first_close - 1 if first_close else 0.0
+        result[f"{key}_latest_date"] = frame.index[-1].date().isoformat()
+    return result
