@@ -13,9 +13,8 @@ from .utils import iso_date, safe_to_csv
 
 OPTIMIZED_CONFIG_PATH = ROOT / "config" / "optimized_strategy.json"
 STRATEGY_HISTORY_PATH = DATA_DIR / "performance" / "strategy_history.csv"
-TARGET_CAGR = 6.0
+TARGET_CAGR = 1.0
 HIGH_RETURN_CAGR = 6.0
-DEFENSIVE_SCORE_THRESHOLD = 999.0
 
 
 def load_optimized_strategy() -> dict[str, Any]:
@@ -151,7 +150,7 @@ def _row_to_strategy(best_row: pd.Series, end: str, phase: str, selection_mode: 
     return {
         "selected_at": pd.Timestamp.now(tz="Asia/Seoul").isoformat(),
         "selection_phase": phase,
-        "selection_rule": "seek CAGR >= 600%; among 600%+ candidates minimize drawdown and validation risk first",
+        "selection_rule": "seek CAGR >= 100%; if CAGR >= 600% candidates exist, minimize risk first",
         "selection_mode": selection_mode,
         "target_cagr": TARGET_CAGR,
         "high_return_risk_minimize_cagr": HIGH_RETURN_CAGR,
@@ -180,26 +179,6 @@ def _row_to_strategy(best_row: pd.Series, end: str, phase: str, selection_mode: 
     }
 
 
-def _defensive_strategy(best_row: pd.Series, end: str, phase: str) -> dict[str, Any]:
-    strategy = _row_to_strategy(best_row, end, phase, "defensive_no_six_hundred_cagr_candidate")
-    strategy.update(
-        {
-            "top_n": 1,
-            "score_threshold": DEFENSIVE_SCORE_THRESHOLD,
-            "cagr": 0.0,
-            "mdd": 0.0,
-            "sharpe": 0.0,
-            "exposure": 0.0,
-            "defensive_reason": "No tested candidate reached the 600% CAGR target, so recommendations are blocked until a 600%+ candidate appears.",
-            "rejected_candidate_cagr": float(best_row.get("cagr", 0.0)),
-            "rejected_candidate_mdd": float(best_row.get("mdd", 0.0)),
-            "rejected_candidate_validation_total_return": float(best_row.get("validation_total_return", 0.0)),
-            "rejected_candidate_validation_weak_count": float(best_row.get("validation_weak_count", 0.0)),
-        }
-    )
-    return strategy
-
-
 def _pick_best(report: pd.DataFrame, end: str, phase: str) -> dict[str, Any]:
     if report.empty:
         return {}
@@ -211,22 +190,29 @@ def _pick_best(report: pd.DataFrame, end: str, phase: str) -> dict[str, Any]:
     if not high_return.empty:
         stable_high_return = high_return[(high_return["validation_grade"] != "weak") & (high_return["validation_weak_count"].fillna(0) < 2)].copy()
         candidates = stable_high_return if not stable_high_return.empty else high_return
-        selection_mode = "six_hundred_cagr_risk_minimized" if stable_high_return.empty else "six_hundred_cagr_stable_risk_minimized"
+        selection_mode = "six_hundred_cagr_stable_risk_minimized" if not stable_high_return.empty else "six_hundred_cagr_risk_minimized"
         best_row = candidates.sort_values(
-            ["mdd", "validation_weak_count", "validation_mdd", "validation_worst_return", "exposure", "score_threshold", "sharpe", "cagr"],
-            ascending=[False, True, False, False, True, False, False, False],
+            ["validation_weak_count", "mdd", "validation_mdd", "validation_worst_return", "exposure", "score_threshold", "sharpe", "cagr"],
+            ascending=[True, False, False, False, True, False, False, False],
         ).iloc[0]
         return _row_to_strategy(best_row, end, phase, selection_mode)
 
-    stable = valid[(valid["validation_grade"] != "weak") & (valid["validation_weak_count"].fillna(0) < 2)].copy()
-    fallback_pool = stable if not stable.empty else valid
-    best_row = fallback_pool.sort_values(
-        ["cagr", "mdd", "validation_weak_count", "validation_mdd", "validation_worst_return", "sharpe"],
-        ascending=[False, False, True, False, False, False],
+    target_met = valid[valid["cagr"] >= TARGET_CAGR].copy()
+    if not target_met.empty:
+        stable_target = target_met[(target_met["validation_grade"] != "weak") & (target_met["validation_weak_count"].fillna(0) < 2)].copy()
+        candidates = stable_target if not stable_target.empty else target_met
+        selection_mode = "target_cagr_stable_return_optimized" if not stable_target.empty else "target_cagr_return_optimized"
+        best_row = candidates.sort_values(
+            ["selection_objective", "validation_weak_count", "validation_mdd", "validation_worst_return", "sharpe", "cagr", "mdd"],
+            ascending=[False, True, False, False, False, False, False],
+        ).iloc[0]
+        return _row_to_strategy(best_row, end, phase, selection_mode)
+
+    best_row = valid.sort_values(
+        ["cagr", "selection_objective", "sharpe", "mdd", "validation_worst_return"],
+        ascending=[False, False, False, False, False],
     ).iloc[0]
-    if float(best_row.get("cagr", 0.0)) < HIGH_RETURN_CAGR:
-        return _defensive_strategy(best_row, end, phase)
-    return _row_to_strategy(best_row, end, phase, "return_seeking_until_six_hundred_cagr")
+    return _row_to_strategy(best_row, end, phase, "return_seeking_until_target_cagr")
 
 
 def optimize_strategy_windows(
@@ -241,9 +227,9 @@ def optimize_strategy_windows(
     end = end or iso_date(date.today())
     windows = windows or [12, 18, 24]
     top_ns = top_ns or [1, 2, 3, 5, 7]
-    score_thresholds = score_thresholds or [3.0, 3.5, 4.0, 4.25, 4.5]
-    stop_multipliers = stop_multipliers or [2.5, 3.0]
-    take_profit_pairs = take_profit_pairs or [(0.30, 0.10), (0.35, 0.12)]
+    score_thresholds = score_thresholds or [2.75, 3.0, 3.25, 3.5, 4.0]
+    stop_multipliers = stop_multipliers or [1.5, 2.0, 2.5, 3.0]
+    take_profit_pairs = take_profit_pairs or [(0.20, 0.08), (0.25, 0.08), (0.30, 0.10), (0.35, 0.12)]
 
     rows: list[dict[str, Any]] = []
     total = len(windows) * len(top_ns) * len(score_thresholds) * len(stop_multipliers) * len(take_profit_pairs)
@@ -360,8 +346,8 @@ def refine_optimized_strategy(
     tp_trailing = float(coarse_best["take_profit_trailing_pct"])
     refined_take_profit_pairs = [
         (
-            round(min(max(tp_trigger + trigger_offset, 0.20), 0.45), 4),
-            round(min(max(tp_trailing + trailing_offset, 0.06), 0.16), 4),
+            round(min(max(tp_trigger + trigger_offset, 0.18), 0.50), 4),
+            round(min(max(tp_trailing + trailing_offset, 0.06), 0.18), 4),
         )
         for trigger_offset, trailing_offset in [(-0.05, -0.02), (0.0, 0.0), (0.05, 0.02)]
     ]
@@ -370,8 +356,8 @@ def refine_optimized_strategy(
         end=end,
         windows=[window],
         top_ns=_bounded_int_values(top_n, [-1, 0, 1], 1, 7),
-        score_thresholds=_bounded_values(threshold, [-0.25, 0.0, 0.25, 0.50], 3.0, 4.75),
-        stop_multipliers=_bounded_values(stop, [-0.25, 0.0, 0.25], 1.5, 3.5),
+        score_thresholds=_bounded_values(threshold, [-0.25, -0.10, 0.0, 0.10, 0.25], 2.5, 4.75),
+        stop_multipliers=_bounded_values(stop, [-0.5, -0.25, 0.0, 0.25, 0.5], 1.0, 3.5),
         take_profit_pairs=sorted(set(refined_take_profit_pairs)),
         verbose=verbose,
     )
@@ -392,14 +378,6 @@ def optimize_strategy_two_stage(
     coarse_report, coarse_best = optimize_strategy_windows(end=end, windows=windows, verbose=verbose)
     if not coarse_best:
         return coarse_report, {}
-    if coarse_best.get("selection_mode") == "defensive_no_six_hundred_cagr_candidate":
-        safe_to_csv(
-            coarse_report,
-            DATA_DIR / "backtests" / f"strategy_window_coarse_optimization_{coarse_best['end']}.csv",
-            index=False,
-            encoding="utf-8-sig",
-        )
-        return coarse_report, coarse_best
     safe_to_csv(
         coarse_report,
         DATA_DIR / "backtests" / f"strategy_window_coarse_optimization_{coarse_best['end']}.csv",
