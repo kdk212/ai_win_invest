@@ -214,17 +214,26 @@ def get_macro_proxy_prices(symbols: dict[str, str], period: str = "1y") -> pd.Da
 def get_index_ohlcv(index_code: str, start: str, end: str, cache: bool = True) -> pd.DataFrame:
     cache_path = DATA_DIR / "cache" / f"index_ohlcv_{index_code}_{start}_{end}.csv"
     if cache and cache_path.exists():
-        return pd.read_csv(cache_path, index_col=0, parse_dates=True)
+        cached = pd.read_csv(cache_path, index_col=0, parse_dates=True)
+        if not cached.empty and "close" in cached:
+            return cached
 
     try:
         df = stock.get_index_ohlcv_by_date(ymd(start), ymd(end), index_code)
     except Exception:
         df = pd.DataFrame()
     if df.empty:
+        fallback_symbol = {"1001": "KS11", "2001": "KQ11"}.get(index_code)
+        if fallback_symbol:
+            try:
+                df = fdr.DataReader(fallback_symbol, start, end)
+            except Exception:
+                df = pd.DataFrame()
+    if df.empty:
         return df
 
     out = _normalize_ohlcv(df)
-    if cache:
+    if cache and not out.empty and "close" in out:
         safe_to_csv(out, cache_path, encoding="utf-8-sig")
     return out
 
@@ -240,14 +249,17 @@ def get_index_returns(start_date: date, end_date: date | None = None) -> dict[st
         if frame.empty or "close" not in frame:
             result[f"{key}_return"] = 0.0
             result[f"{key}_latest_date"] = ""
+            result[f"{key}_status"] = "missing"
             continue
         frame = frame[frame.index.date >= start_date].dropna(subset=["close"])
         if frame.empty:
             result[f"{key}_return"] = 0.0
             result[f"{key}_latest_date"] = ""
+            result[f"{key}_status"] = "missing_after_start"
             continue
         first_close = float(frame.iloc[0]["close"])
         latest_close = float(frame.iloc[-1]["close"])
         result[f"{key}_return"] = latest_close / first_close - 1 if first_close else 0.0
         result[f"{key}_latest_date"] = frame.index[-1].date().isoformat()
+        result[f"{key}_status"] = "ok"
     return result
